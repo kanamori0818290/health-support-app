@@ -46,10 +46,10 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw } from 'lucide-react';
+        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2 } from 'lucide-react';
         
         import { initializeApp } from 'firebase/app';
-        import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
+        import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
         import { getAuth, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 
         const firebaseConfig = {
@@ -92,7 +92,7 @@
             const [currentPhase, setCurrentPhase] = useState(0);
             const [formData, setFormData] = useState({ pgStep: 1 });
             const [cases, setCases] = useState([]); 
-            const [showResetConfirm, setShowResetConfirm] = useState(false); // ★追加: リセット確認モーダルの状態
+            const [showResetConfirm, setShowResetConfirm] = useState(false);
 
             useEffect(() => {
                 const unsubscribe = onSnapshot(collection(db, "cases"), (snapshot) => {
@@ -120,7 +120,6 @@
                         setCurrentRole(userData.role);
                         setIsLoggedIn(true);
                         
-                        // 本人の場合は過去のデータを復元
                         if (userData.role === 'employee') {
                             setCurrentView('detail');
                             const myCase = cases.find(c => c.id === userData.id);
@@ -151,7 +150,6 @@
                     const docSnap = await getDoc(docRef);
                     if (docSnap.exists()) return alert('このID（社員番号）はすでに登録されています。ログイン画面からログインしてください。');
                     
-                    // データベースの "users" という場所にアカウント情報を保存
                     const newUser = { id: authData.id, empId: authData.id, name: authData.name, password: authData.password, role: authData.role };
                     await setDoc(docRef, newUser);
                     
@@ -176,7 +174,6 @@
                 if (!adminAuthData.email || !adminAuthData.password) return alert('メールアドレスとパスワードを入力してください');
                 
                 try {
-                    // Firebase Authentication を使ってセキュアにログイン
                     const userCredential = await signInWithEmailAndPassword(auth, adminAuthData.email, adminAuthData.password);
                     const user = userCredential.user;
                     
@@ -223,7 +220,6 @@
                 let score = 0;
                 let riskDetails = [];
 
-                // --- 1. 絶対的/医学的リスク (高ウェイト) ---
                 if(data.doctor_restriction === 'yes') { 
                     score += 10; riskDetails.push('【+10点】 主治医からの就業制限(診断書)あり'); 
                 }
@@ -234,7 +230,6 @@
                     score += 5; riskDetails.push('【+5点】 休業期間が1ヶ月以上の長期'); 
                 }
 
-                // --- 2. 職場環境/安全リスク (中ウェイト) ---
                 if(data.mgr_safety_concern === 'yes') { 
                     score += 5; riskDetails.push('【+5点】 職制が業務上の安全面に不安を感じている'); 
                 }
@@ -242,7 +237,6 @@
                     score += 5; riskDetails.push('【+5点】 職制が復帰後の受け入れ体制に不安を感じている'); 
                 }
 
-                // --- 3. 配慮・希望によるリスク (低〜中ウェイト) ---
                 if(data.req_accommodation === 'yes') { 
                     score += 3; riskDetails.push('【+3点】 本人が就業上の配慮や調整を希望している'); 
                 }
@@ -256,12 +250,10 @@
                     score += 1; riskDetails.push('【+1点】 診断書の提出あり (制限有無に関わらず)'); 
                 }
 
-                // --- 4. 認識のズレリスク (加算) ---
                 if(data.req_accommodation === 'yes' && data.mgr_needs_accommodation === 'no') { 
                     score += 5; riskDetails.push('【+5点】 ⚠ 配慮の必要性について、本人と職制で認識のズレがある'); 
                 }
 
-                // --- スコアによるレベル判定 ---
                 let level = 0;
                 if (score >= 15) {
                     level = 3;
@@ -296,7 +288,7 @@
                 } catch (error) { console.error("保存エラー:", error); }
             };
 
-            // ★追加: データを初期値にリセットする関数
+            // データを初期値にリセットする関数
             const executeReset = async () => {
                 const resetData = {
                     id: formData.id,
@@ -307,13 +299,24 @@
                 };
                 
                 try {
-                    // merge: true を外すことで、データベース上の過去の判定データなどをすべて消去し上書きする
                     await setDoc(doc(db, "cases", formData.id), resetData); 
                     setFormData(resetData);
                     setCurrentPhase(0);
                     setShowResetConfirm(false);
                 } catch (error) {
                     console.error("リセットエラー:", error);
+                }
+            };
+
+            // ★追加: データを完全に削除する関数（管理者用）
+            const handleDeleteCase = async (id, name) => {
+                if (window.confirm(`従業員「${name || '氏名未設定'}」の申請データを完全に削除します。\nこの操作は取り消せません。本当によろしいですか？`)) {
+                    try {
+                        await deleteDoc(doc(db, "cases", id));
+                    } catch (error) {
+                        console.error("削除エラー:", error);
+                        alert("データの削除に失敗しました。");
+                    }
                 }
             };
 
@@ -330,7 +333,6 @@
                                 </p>
                             </div>
                             
-                            {}
                             {isAdminLoginMode ? (
                                 <form onSubmit={handleAdminLoginSubmit} className="space-y-4">
                                     <div>
@@ -380,7 +382,6 @@
                                     <div>
                                         <label className="block text-sm font-bold text-slate-700 mb-1">役割 (ロール)</label>
                                         <select name="role" value={authData.role} onChange={handleAuthChange} className="w-full p-3 border rounded-lg bg-slate-50">
-                                            {/* 新規登録から「管理者」を隠す */}
                                             {ROLES.filter(r => r.id !== 'admin').map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
                                         </select>
                                     </div>
@@ -391,7 +392,6 @@
                                 </form>
                             )}
                             
-                            {/* 管理者ログインへの導線 */}
                             {!isAdminLoginMode && (
                                 <div className="text-center mt-6 pt-4 border-t border-slate-100">
                                     <button type="button" onClick={() => setIsAdminLoginMode(true)} className="text-xs text-slate-400 hover:text-slate-600 font-medium flex items-center justify-center gap-1 mx-auto">
@@ -455,7 +455,19 @@
                                                                 </span>
                                                             </td>
                                                             <td className="p-4 text-center">
-                                                                <button onClick={() => openCase(c)} className="bg-white border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-4 py-1.5 rounded-md text-sm font-bold shadow-sm">詳細を開く</button>
+                                                                <div className="flex justify-center gap-2">
+                                                                    <button onClick={() => openCase(c)} className="bg-white border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-4 py-1.5 rounded-md text-sm font-bold shadow-sm transition-colors">詳細を開く</button>
+                                                                    {/* ★追加: 管理者用の削除ボタン */}
+                                                                    {isAdmin && (
+                                                                        <button 
+                                                                            onClick={() => handleDeleteCase(c.id, c.name)} 
+                                                                            className="bg-white border border-red-500 text-red-500 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-md text-sm font-bold shadow-sm flex items-center gap-1 transition-colors"
+                                                                            title="データを削除"
+                                                                        >
+                                                                            <Trash2 className="w-4 h-4" /> 削除
+                                                                        </button>
+                                                                    )}
+                                                                </div>
                                                             </td>
                                                         </tr>
                                                     ))}
@@ -467,7 +479,6 @@
                             </div>
                         ) : (
                             <div className="animate-fade-in-up">
-                                {/* ★修正: ヘッダーにリセットボタンを追加 */}
                                 <div className="bg-white px-6 py-4 rounded-xl shadow-sm border border-slate-200 mb-8 flex items-center justify-between sticky top-[68px] z-40">
                                     <div className="flex items-center gap-4">
                                         <div className="bg-blue-100 p-3 rounded-full hidden sm:block"><User className="w-6 h-6 text-blue-600" /></div>
@@ -488,7 +499,6 @@
                                     </div>
                                 </div>
 
-                                {/* ★追加: リセット確認モーダル */}
                                 {showResetConfirm && (
                                     <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
                                         <div className="bg-white p-6 rounded-xl shadow-xl max-w-sm w-full animate-fade-in-up">
@@ -505,7 +515,6 @@
                                     </div>
                                 )}
 
-                                {/* ★修正: プログレスバー（クリックでフェーズ移動可能に） */}
                                 <div className="mb-10">
                                     <div className="flex items-center justify-between mb-4">
                                         <h2 className="text-lg font-bold flex items-center gap-2">
@@ -532,7 +541,6 @@
                                     </div>
                                 </div>
 
-                                {/* Phase 0 */}
                                 {currentPhase === 0 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3">
@@ -587,7 +595,6 @@
                                                     </div>
                                                 </section>
 
-                                                {/* 傷病手当の申請準備セクションを追加 */}
                                                 <section>
                                                     <h3 className="text-lg font-bold mb-4 text-slate-700">D. 傷病手当の申請準備</h3>
                                                     <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
@@ -638,7 +645,6 @@
                                     </div>
                                 )}
 
-                                {}
                                 {currentPhase === 1 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3">
@@ -678,14 +684,12 @@
                                     </div>
                                 )}
 
-                                {}
                                 {currentPhase === 2 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3">
                                             <Activity className="w-6 h-6 text-purple-600" /> Phase 2: システム自動判定 ＆ 専門職判断
                                         </h2>
                                         
-                                        {}
                                         <div className={`p-6 rounded-xl border-2 mb-8 shadow-sm ${
                                             formData.sys_level === 3 ? 'bg-red-50 border-red-300' :
                                             formData.sys_level === 2 ? 'bg-orange-50 border-orange-300' :
@@ -733,8 +737,6 @@
                                             </div>
                                         </div>
 
-                                        {}
-                                        {/* 専門職による最終決定 */}
                                         {canEdit('ohp') ? (
                                             <div className="border border-slate-200 rounded-lg p-6 bg-slate-50">
                                                 <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
@@ -766,14 +768,12 @@
                                     </div>
                                 )}
 
-                                {}
                                 {currentPhase === 3 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3">
                                             <Shield className="w-6 h-6 text-blue-600" /> Phase 3: 就業支援プログラム
                                         </h2>
                                         
-                                        {/* PG内の進行タブ */}
                                         <div className="flex border-b border-slate-200 mb-8">
                                             {[
                                                 { id: 1, title: 'Ⅰ 療養専念期' },
@@ -786,7 +786,6 @@
                                             ))}
                                         </div>
 
-                                        {/* PG Step 1: 療養 */}
                                         {formData.pgStep === 1 && (
                                             <div className="animate-fade-in-up space-y-6">
                                                 <div className="bg-blue-50 border-l-4 border-blue-500 p-4">
@@ -805,7 +804,6 @@
                                             </div>
                                         )}
 
-                                        {/* PG Step 2: 準備 */}
                                         {formData.pgStep === 2 && (
                                             <div className="animate-fade-in-up space-y-6">
                                                 <div className="bg-blue-50 border-l-4 border-blue-500 p-4">
@@ -822,7 +820,6 @@
                                             </div>
                                         )}
 
-                                        {/* PG Step 3: フォローシート */}
                                         {formData.pgStep === 3 && (
                                             <div className="animate-fade-in-up space-y-6">
                                                 <div className="bg-emerald-50 border-l-4 border-emerald-500 p-4">
@@ -854,7 +851,6 @@
                                     </div>
                                 )}
 
-                                {}
                                 {currentPhase === 4 && (
                                     <div className="bg-white p-12 rounded-xl shadow-sm border border-slate-200 text-center animate-fade-in-up">
                                         <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100 mb-6"><CheckCircle className="w-10 h-10 text-green-600" /></div>
