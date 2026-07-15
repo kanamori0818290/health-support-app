@@ -110,23 +110,30 @@
                 }
             }, [loginAttempts]);
 
+            // 修正箇所：ログインしている時だけデータを取得するように条件を追加
             useEffect(() => {
+                if (!isLoggedIn) return;
+
                 const unsubscribe = onSnapshot(collection(db, "cases"), (snapshot) => {
                     const casesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     setCases(casesData);
+                }, (error) => {
+                    console.error("Cases取得エラー:", error);
                 });
                 return () => unsubscribe();
-            }, []);
+            }, [isLoggedIn]);
 
             useEffect(() => {
-                if (currentRole === 'admin') {
+                if (isLoggedIn && currentRole === 'admin') {
                     const unsubscribe = onSnapshot(collection(db, "users"), (snapshot) => {
                         const uData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                         setUsersList(uData);
+                    }, (error) => {
+                        console.error("Users取得エラー:", error);
                     });
                     return () => unsubscribe();
                 }
-            }, [currentRole]);
+            }, [isLoggedIn, currentRole]);
 
             const setupRecaptcha = () => {
                 if (!window.recaptchaVerifier) {
