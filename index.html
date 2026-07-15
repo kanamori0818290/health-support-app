@@ -238,7 +238,11 @@
                     setAuthStep('verify_enroll');
                 } catch (error) {
                     console.error("Enrollment Error", error);
-                    setAuthErrorMsg("電話番号の確認に失敗しました。正しい番号を入力してください。");
+                    if (error.code === 'auth/captcha-check-failed') {
+                        setAuthErrorMsg("通信エラーです。画面を一度リロード(F5キー)してから、ログインをやり直してください。");
+                    } else {
+                        setAuthErrorMsg("電話番号の確認に失敗しました。正しい番号を入力してください。");
+                    }
                 }
             };
 
@@ -249,10 +253,16 @@
                     const cred = PhoneAuthProvider.credential(verificationId, verificationCode);
                     const assertion = PhoneMultiFactorGenerator.assertion(cred);
                     await multiFactor(auth.currentUser).enroll(assertion, 'Personal Phone');
+                    
                     await finalizeLogin(auth.currentUser);
                 } catch (error) {
                     console.error("Verification Error", error);
-                    setAuthErrorMsg("認証コードが正しくありません。");
+                    if (error.code === 'auth/second-factor-already-in-use') {
+                        // 【追加】既に登録済みの場合は、エラーにせずそのままログインを完了させる
+                        await finalizeLogin(auth.currentUser);
+                    } else {
+                        setAuthErrorMsg("認証コードが正しくありません。");
+                    }
                 }
             };
 
