@@ -32,11 +32,11 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect, useRef } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone } from 'lucide-react';
+        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail } from 'lucide-react';
         
         import { initializeApp } from 'firebase/app';
         import { 
-            getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile,
+            getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendEmailVerification,
             multiFactor, PhoneAuthProvider, PhoneMultiFactorGenerator, RecaptchaVerifier, getMultiFactorResolver
         } from 'firebase/auth';
         import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
@@ -162,6 +162,12 @@
                         const userCredential = await signInWithEmailAndPassword(auth, authData.email, authData.password);
                         const user = userCredential.user;
                         
+                        // 【新規】メール認証が済んでいない場合はログインさせない
+                        if (!user.emailVerified) {
+                            setAuthStep('verify_email');
+                            return;
+                        }
+
                         // Check if MFA is already enrolled
                         const enrolledFactors = multiFactor(user).enrolledFactors;
                         if (enrolledFactors.length > 0) {
@@ -181,7 +187,9 @@
                         const newUser = { id: user.uid, empId: authData.empId, name: authData.name, role: assignedRole, email: authData.email };
                         await setDoc(doc(db, "users", user.uid), newUser);
                         
-                        setAuthStep('enroll_phone');
+                        // 【新規】確認メールを送信して、メール確認待機画面へ
+                        await sendEmailVerification(user);
+                        setAuthStep('verify_email');
                     }
                 } catch (error) {
                     console.error("Auth Error", error);
@@ -212,6 +220,35 @@
                 }
             };
 
+            // 【新規】メール認証が完了したかチェックする関数
+            const checkEmailVerification = async () => {
+                setAuthErrorMsg('');
+                try {
+                    // 最新のユーザー状態を取得
+                    await auth.currentUser.reload();
+                    if (auth.currentUser.emailVerified) {
+                        // メールの確認が取れたら、多要素認証（電話番号）の登録へ進む
+                        setAuthStep('enroll_phone');
+                    } else {
+                        setAuthErrorMsg("まだメールの確認が完了していません。メール内のリンクをクリックしてから再度お試しください。");
+                    }
+                } catch (error) {
+                    console.error("Reload Error", error);
+                    setAuthErrorMsg("状態の確認に失敗しました。");
+                }
+            };
+            
+            // 【新規】メールの再送信機能
+            const resendVerificationEmail = async () => {
+                try {
+                    await sendEmailVerification(auth.currentUser);
+                    setAuthErrorMsg("確認メールを再送信しました。");
+                } catch (error) {
+                    console.error("Resend Error", error);
+                    setAuthErrorMsg("メールの送信に失敗しました。少し時間をおいてからお試しください。");
+                }
+            };
+
             const startMfaEnrollment = async (e) => {
                 e.preventDefault();
                 setAuthErrorMsg('');
@@ -229,6 +266,7 @@
                     setAuthStep('verify_enroll');
                 } catch (error) {
                     console.error("Enrollment Error", error);
+                    // 【修正】バイパス処理を削除し、正規のエラーメッセージに戻す
                     setAuthErrorMsg("電話番号の確認に失敗しました。正しい番号を入力してください。");
                     if(window.recaptchaVerifier) window.recaptchaVerifier.clear();
                 }
@@ -238,6 +276,7 @@
                 e.preventDefault();
                 setAuthErrorMsg('');
                 try {
+                    // 【修正】バイパス処理を削除し、正規の認証フローに戻す
                     const cred = PhoneAuthProvider.credential(verificationId, verificationCode);
                     const assertion = PhoneMultiFactorGenerator.assertion(cred);
                     await multiFactor(auth.currentUser).enroll(assertion, 'Personal Phone');
@@ -465,6 +504,42 @@
                                         )}
                                     </div>
                                 </form>
+                            )}
+
+                            {/* 【新規】メール認証待ち画面 */}
+                            {authStep === 'verify_email' && (
+                                <div className="space-y-4 animate-fade-in-up">
+                                    <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 mb-4 text-center">
+                                        <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-200 rounded-full mb-3">
+                                            <Mail className="w-6 h-6 text-blue-700"/>
+                                        </div>
+                                        <h3 className="font-bold text-blue-900 mb-2">メールアドレスの確認</h3>
+                                        <p className="text-sm text-blue-800 leading-relaxed">
+                                            <b className="block mb-2 text-base">{authData.email}</b>
+                                            宛に本人確認メールを送信しました。<br/>
+                                            メール内のリンクをクリックして、認証を完了させてください。
+                                        </p>
+                                    </div>
+                                    
+                                    {authErrorMsg && (
+                                        <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 font-medium text-center">
+                                            {authErrorMsg}
+                                        </div>
+                                    )}
+
+                                    <button onClick={checkEmailVerification} className="w-full py-3 rounded-lg font-bold text-white shadow-md transition-all bg-indigo-600 hover:bg-indigo-700 hover:-translate-y-0.5">
+                                        メールのリンクをクリックした後に押す
+                                    </button>
+                                    
+                                    <div className="pt-4 mt-2 border-t border-slate-100 flex flex-col gap-3">
+                                        <button type="button" onClick={resendVerificationEmail} className="text-sm text-slate-500 hover:text-slate-700 font-bold transition-colors">
+                                            確認メールを再送信する
+                                        </button>
+                                        <button type="button" onClick={handleLogout} className="text-sm text-slate-400 hover:text-red-500 font-bold transition-colors">
+                                            キャンセルして最初の画面に戻る
+                                        </button>
+                                    </div>
+                                </div>
                             )}
 
                             {authStep === 'enroll_phone' && (
