@@ -256,11 +256,11 @@
                     
                     await finalizeLogin(auth.currentUser);
                 } catch (error) {
-                    console.error("Verification Error", error);
                     if (error.code === 'auth/second-factor-already-in-use') {
-                        // 【追加】既に登録済みの場合は、エラーにせずそのままログインを完了させる
+                        // 既に登録済みの場合は、エラーにせずそのままログインを完了させる
                         await finalizeLogin(auth.currentUser);
                     } else {
+                        console.error("Verification Error", error);
                         setAuthErrorMsg("認証コードが正しくありません。");
                     }
                 }
@@ -284,31 +284,36 @@
                 const docRef = doc(db, "users", user.uid);
                 const docSnap = await getDoc(docRef);
                 
+                let userData;
                 if (docSnap.exists()) {
-                    let userData = docSnap.data();
+                    userData = docSnap.data();
+                } else {
+                    // データベースの掃除などでデータが消えていた場合の自動復旧処理
+                    userData = { id: user.uid, empId: '不明', name: user.displayName || 'ユーザー', role: 'employee', email: user.email };
+                    try { await setDoc(docRef, userData); } catch(e) {}
+                }
                     
-                    if (user.email === MASTER_ADMIN_EMAIL && userData.role !== 'admin') {
-                        userData.role = 'admin';
-                        await setDoc(docRef, { role: 'admin' }, { merge: true });
-                    }
+                if (user.email === MASTER_ADMIN_EMAIL && userData.role !== 'admin') {
+                    userData.role = 'admin';
+                    try { await setDoc(docRef, { role: 'admin' }, { merge: true }); } catch(e) {}
+                }
 
-                    setCurrentUser(userData);
-                    setCurrentRole(userData.role);
-                    setIsLoggedIn(true);
-                    setLoginAttempts(0);
-                    
-                    if (userData.role === 'employee') {
-                        const myCase = cases.find(c => c.uid === user.uid);
-                        if (myCase) {
-                            openCase(myCase);
-                        } else {
-                            setCurrentView('detail');
-                            setFormData({ uid: user.uid, empId: userData.empId, name: userData.name });
-                            setCurrentPhase(0);
-                        }
+                setCurrentUser(userData);
+                setCurrentRole(userData.role);
+                setIsLoggedIn(true);
+                setLoginAttempts(0);
+                
+                if (userData.role === 'employee') {
+                    const myCase = cases.find(c => c.uid === user.uid);
+                    if (myCase) {
+                        openCase(myCase);
                     } else {
-                        setCurrentView('dashboard');
+                        setCurrentView('detail');
+                        setFormData({ uid: user.uid, empId: userData.empId, name: userData.name });
+                        setCurrentPhase(0);
                     }
+                } else {
+                    setCurrentView('dashboard');
                 }
             };
 
