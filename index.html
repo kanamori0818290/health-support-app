@@ -107,53 +107,7 @@
             const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
 
             useEffect(() => {
-                const unsubscribe = onAuthStateChanged(auth, async (user) => {
-                    if (user && !isDemoMode) {
-                        const enrolledFactors = multiFactor(user).enrolledFactors;
-                        if (enrolledFactors.length > 0 || user.email === MASTER_ADMIN_EMAIL) {
-                             try {
-                                const docRef = doc(db, "users", user.uid);
-                                const docSnap = await getDoc(docRef);
-                                if (docSnap.exists()) {
-                                    let userData = docSnap.data();
-                                    setCurrentUser(userData);
-                                    setCurrentRole(userData.role);
-                                    setIsLoggedIn(true);
-                                    if (userData.role === 'employee') {
-                                        setCurrentView('detail');
-                                    } else {
-                                        setCurrentView('dashboard');
-                                    }
-                                }
-                             } catch (error) {
-                                console.error("Session Restore Error:", error);
-                             }
-                        }
-                    }
-                });
-                return () => unsubscribe();
-            }, [isDemoMode]);
-
-            useEffect(() => {
-                if (loginAttempts >= 10) {
-                    setIsLockedOut(true);
-                    setAuthErrorMsg("ログイン失敗が規定回数に達したため、安全のために一時的にロックアウトされました。");
-                }
-            }, [loginAttempts]);
-
-            useEffect(() => {
-                if (!isLoggedIn || isDemoMode) return;
-                const unsubscribe = onSnapshot(collection(db, "cases"), (snapshot) => {
-                    const casesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    setCases(casesData);
-                }, (error) => {
-                    console.error("Cases取得エラー:", error);
-                });
-                return () => unsubscribe();
-            }, [isLoggedIn, isDemoMode]);
-
-            useEffect(() => {
-                if (isLoggedIn && currentRole === 'admin' && !isDemoMode) {
+                if (isLoggedIn && currentRole === 'admin') {
                     const unsubscribe = onSnapshot(collection(db, "users"), (snapshot) => {
                         const uData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                         setUsersList(uData);
@@ -162,19 +116,14 @@
                     });
                     return () => unsubscribe();
                 }
-            }, [isLoggedIn, currentRole, isDemoMode]);
+            }, [isLoggedIn, currentRole]);
 
             const setupRecaptcha = () => {
-                try {
-                    if (window.recaptchaVerifier) {
-                        window.recaptchaVerifier.clear();
-                    }
-                } catch (e) {
-                    console.warn("Recaptcha clear error ignored", e);
+                // 【修正】すでに信号機が存在する場合は、新しく作らずに再利用する
+                if (window.recaptchaVerifier) {
+                    return;
                 }
-                window.recaptchaVerifier = null;
-                const container = document.getElementById('recaptcha-container');
-                if (container) container.innerHTML = '';
+
                 window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
                     'size': 'invisible'
                 });
@@ -239,12 +188,6 @@
                         } catch (mfaError) {
                             console.error("MFA Send Error", mfaError);
                             setAuthErrorMsg("認証コードの送信に失敗しました。時間をおいて再度お試しください。");
-                            if (window.recaptchaVerifier) {
-                                try { window.recaptchaVerifier.clear(); } catch(e) {}
-                                window.recaptchaVerifier = null;
-                            }
-                            const container = document.getElementById('recaptcha-container');
-                            if (container) container.innerHTML = '';
                         }
                     } else {
                         setLoginAttempts(prev => prev + 1);
@@ -296,12 +239,6 @@
                 } catch (error) {
                     console.error("Enrollment Error", error);
                     setAuthErrorMsg("電話番号の確認に失敗しました。正しい番号を入力してください。");
-                    if (window.recaptchaVerifier) {
-                        try { window.recaptchaVerifier.clear(); } catch(e) {}
-                        window.recaptchaVerifier = null;
-                    }
-                    const container = document.getElementById('recaptcha-container');
-                    if (container) container.innerHTML = '';
                 }
             };
 
