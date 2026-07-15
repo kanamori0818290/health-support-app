@@ -73,6 +73,7 @@
         const MASTER_ADMIN_EMAIL = "yuuto.kanamori.ma@mcgc.com";
 
         function HealthSupportPortal() {
+            // App States
             const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [currentRole, setCurrentRole] = useState('');
             const [currentUser, setCurrentUser] = useState(null);
@@ -82,8 +83,9 @@
             const [formData, setFormData] = useState({});
             const [cases, setCases] = useState([]); 
 
-            const [authMode, setAuthMode] = useState('login'); // 'login' or 'register'
-            const [authStep, setAuthStep] = useState('email_password'); // 'email_password', 'enroll_phone', 'verify_enroll', 'verify_signin'
+            // Auth & MFA States
+            const [authMode, setAuthMode] = useState('login'); 
+            const [authStep, setAuthStep] = useState('email_password'); 
             const [authData, setAuthData] = useState({ email: '', password: '', empId: '', name: '' });
             const [phoneNumber, setPhoneNumber] = useState('');
             const [verificationCode, setVerificationCode] = useState('');
@@ -94,8 +96,12 @@
             const [isLockedOut, setIsLockedOut] = useState(false);
             const [authErrorMsg, setAuthErrorMsg] = useState('');
 
+            // Dashboard States
             const [dashboardTab, setDashboardTab] = useState('cases'); 
             const [usersList, setUsersList] = useState([]);
+
+            // Custom Confirm Modal State
+            const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
 
             useEffect(() => {
                 if (loginAttempts >= 10) {
@@ -131,7 +137,6 @@
             };
 
             const formatPhoneNumber = (phone) => {
-                // 日本の携帯番号(090等)を +81 フォーマットに変換
                 let formatted = phone.replace(/-/g, '');
                 if (formatted.startsWith('0')) {
                     formatted = '+81' + formatted.slice(1);
@@ -146,21 +151,21 @@
 
                 try {
                     if (authMode === 'login') {
-                        // ログイン処理
+                        // Attempt standard login
                         const userCredential = await signInWithEmailAndPassword(auth, authData.email, authData.password);
                         const user = userCredential.user;
                         
-                        // MFAが設定されているか確認
+                        // Check if MFA is already enrolled
                         const enrolledFactors = multiFactor(user).enrolledFactors;
                         if (enrolledFactors.length > 0) {
                             await finalizeLogin(user);
                         } else {
-                            // MFA未設定の場合は登録画面へ
+                            // Proceed to enrollment if not set
                             setAuthStep('enroll_phone');
                         }
 
                     } else {
-                        // 新規登録処理
+                        // Registration flow
                         const userCredential = await createUserWithEmailAndPassword(auth, authData.email, authData.password);
                         const user = userCredential.user;
                         
@@ -169,13 +174,12 @@
                         const newUser = { id: user.uid, empId: authData.empId, name: authData.name, role: assignedRole, email: authData.email };
                         await setDoc(doc(db, "users", user.uid), newUser);
                         
-                        // 登録直後はMFA登録へ進む
                         setAuthStep('enroll_phone');
                     }
                 } catch (error) {
                     console.error("Auth Error", error);
                     if (error.code === 'auth/multi-factor-auth-required') {
-                        // MFAが必要な場合の処理 (通常のログイン成功ルート)
+                        // MFA Required (Normal Login Flow for enrolled users)
                         try {
                             const resolver = getMultiFactorResolver(auth, error);
                             setMfaResolver(resolver);
@@ -191,7 +195,8 @@
                             setAuthStep('verify_signin');
                         } catch (mfaError) {
                             console.error("MFA Send Error", mfaError);
-                            setAuthErrorMsg("認証コードの送信に失敗しました。");
+                            setAuthErrorMsg("認証コードの送信に失敗しました。時間をおいて再度お試しください。");
+                            if(window.recaptchaVerifier) window.recaptchaVerifier.clear();
                         }
                     } else {
                         setLoginAttempts(prev => prev + 1);
@@ -218,6 +223,7 @@
                 } catch (error) {
                     console.error("Enrollment Error", error);
                     setAuthErrorMsg("電話番号の確認に失敗しました。正しい番号を入力してください。");
+                    if(window.recaptchaVerifier) window.recaptchaVerifier.clear();
                 }
             };
 
@@ -291,6 +297,10 @@
                     setAuthStep('email_password');
                     setPhoneNumber('');
                     setVerificationCode('');
+                    if(window.recaptchaVerifier) {
+                        window.recaptchaVerifier.clear();
+                        window.recaptchaVerifier = null;
+                    }
                 });
             };
 
@@ -313,6 +323,7 @@
             const canEdit = (role) => currentRole === 'admin' || currentRole === role;
             const currentRoleLabel = ROLES.find(r => r.id === currentRole)?.label;
             const CurrentRoleIcon = ROLES.find(r => r.id === currentRole)?.icon || User;
+            const isAdmin = currentRole === 'admin';
 
             const saveData = async (extraData = {}) => {
                 const newData = { ...formData, ...extraData };
@@ -332,38 +343,42 @@
                 }
             };
 
-            const resetData = async () => {
-                if (window.confirm("現在入力中のデータを初期化(Phase 0)に戻します。本当によろしいですか？")) {
+            // Custom Confirm Helper
+            const requestConfirm = (message, action) => {
+                setConfirmDialog({ isOpen: true, message, onConfirm: action });
+            };
+
+            const resetData = () => {
+                requestConfirm("現在入力中のデータを初期化(Phase 0)に戻します。本当によろしいですか？", async () => {
                     const newData = { id: formData.id, uid: formData.uid, empId: formData.empId, name: formData.name, department: formData.department, phase: 0 };
                     setFormData(newData);
                     setCurrentPhase(0);
                     if (formData.id) {
                         await setDoc(doc(db, "cases", formData.id), newData);
                     }
-                }
+                });
             };
 
-            const deleteCase = async (caseId, caseName) => {
-                if (window.confirm(`${caseName}さんの申請データを完全に削除します。本当によろしいですか？`)) {
+            const deleteCase = (caseId, caseName) => {
+                requestConfirm(`${caseName}さんの申請データを完全に削除します。本当によろしいですか？`, async () => {
                     try {
                         await deleteDoc(doc(db, "cases", caseId));
                     } catch (error) {
                         console.error("Delete Error", error);
                     }
-                }
+                });
             };
 
-            const updateUserRole = async (targetUserId, targetEmail, newRole) => {
-                if (targetEmail === MASTER_ADMIN_EMAIL && newRole !== 'admin') {
-                    return;
-                }
-                if (window.confirm(`権限を更新しますか？`)) {
+            const updateUserRole = (targetUserId, targetEmail, newRole) => {
+                if (targetEmail === MASTER_ADMIN_EMAIL && newRole !== 'admin') return;
+                
+                requestConfirm("ユーザーの権限を更新します。よろしいですか？", async () => {
                     try {
                         await setDoc(doc(db, "users", targetUserId), { role: newRole }, { merge: true });
                     } catch (error) {
                         console.error("Role Update Error", error);
                     }
-                }
+                });
             };
 
             const calculateRiskScore = () => {
@@ -449,7 +464,7 @@
                                 <form onSubmit={startMfaEnrollment} className="space-y-4 animate-fade-in-up">
                                     <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 mb-4">
                                         <h3 className="font-bold text-indigo-900 flex items-center gap-2 mb-2"><Smartphone className="w-5 h-5"/> セキュリティ設定</h3>
-                                        <p className="text-sm text-indigo-800">安全のため、SMS（ショートメッセージ）を用いた多要素認証を設定します。携帯電話番号を入力してください。</p>
+                                        <p className="text-sm text-indigo-800">安全のため、SMSを用いた多要素認証を設定します。携帯電話番号を入力してください。（※テスト用は 09000000000 を入力）</p>
                                     </div>
                                     <div>
                                         <label className="block text-sm font-bold text-slate-700 mb-1">携帯電話番号 (ハイフンなし)</label>
@@ -473,9 +488,9 @@
                                     </div>
                                     {authErrorMsg && <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 font-medium">{authErrorMsg}</div>}
                                     <button type="submit" className="w-full py-3 rounded-lg font-bold text-white shadow-md transition-all bg-indigo-600 hover:bg-indigo-700">
-                                        認証してログイン
+                                        認証して完了
                                     </button>
-                                    <button type="button" onClick={() => setAuthStep('email_password')} className="w-full mt-2 text-sm text-slate-500 hover:text-slate-700 font-bold">
+                                    <button type="button" onClick={() => { setAuthStep('email_password'); setVerificationCode(''); if(window.recaptchaVerifier) window.recaptchaVerifier.clear(); }} className="w-full mt-2 text-sm text-slate-500 hover:text-slate-700 font-bold">
                                         最初からやり直す
                                     </button>
                                 </form>
@@ -486,7 +501,23 @@
             }
 
             return (
-                <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20">
+                <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20 relative">
+                    {/* Custom Confirm Modal */}
+                    {confirmDialog.isOpen && (
+                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
+                            <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full animate-fade-in-up border border-slate-200">
+                                <div className="flex items-start gap-3 mb-6">
+                                    <AlertTriangle className="w-6 h-6 text-orange-500 flex-shrink-0" />
+                                    <p className="font-bold text-slate-800 leading-relaxed">{confirmDialog.message}</p>
+                                </div>
+                                <div className="flex justify-end gap-3">
+                                    <button onClick={() => setConfirmDialog({isOpen:false})} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors">キャンセル</button>
+                                    <button onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({isOpen:false}); }} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors shadow-sm">実行</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     <header className="bg-blue-900 text-white shadow-md sticky top-0 z-50">
                         <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center flex-wrap gap-4">
                             <div className="flex items-center gap-2">
@@ -629,7 +660,7 @@
                             </div>
                         ) : (
                             <div className="animate-fade-in-up">
-                                {/* Detail View Header */}
+                                {}
                                 <div className="bg-white px-6 py-4 rounded-xl shadow-sm border border-slate-200 mb-8 flex items-center justify-between sticky top-[68px] z-40">
                                     <div className="flex items-center gap-4">
                                         <div className="bg-blue-100 p-3 rounded-full hidden sm:block">
