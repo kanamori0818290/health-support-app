@@ -48,7 +48,7 @@
         import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info } from 'lucide-react';
         
         import { initializeApp } from 'firebase/app';
-        import { getFirestore, collection, doc, setDoc, onSnapshot } from 'firebase/firestore';
+        import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 
         const firebaseConfig = {
             apiKey: "AIzaSyDHqkBNSSsakVwHxKdWZ4hNoSM9wORbLR4",
@@ -80,6 +80,9 @@
         function HealthSupportPortal() {
             const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [currentRole, setCurrentRole] = useState('employee');
+            const [currentUser, setCurrentUser] = useState(null);
+            const [isLoginMode, setIsLoginMode] = useState(true);
+            const [authData, setAuthData] = useState({ id: '', password: '', name: '', role: 'employee' });
             const [currentView, setCurrentView] = useState('detail'); 
             const [currentPhase, setCurrentPhase] = useState(0);
             const [formData, setFormData] = useState({ pgStep: 1 });
@@ -93,15 +96,72 @@
                 return () => unsubscribe();
             }, []);
 
-            const handleLogin = (roleId) => {
-                setCurrentRole(roleId);
-                setIsLoggedIn(true);
-                if (roleId === 'employee') {
-                    setCurrentView('detail');
-                    setFormData({ id: `emp_${Date.now()}`, pgStep: 1 }); 
-                    setCurrentPhase(0);
-                } else {
-                    setCurrentView('dashboard');
+            const handleAuthChange = (e) => {
+                const { name, value } = e.target;
+                setAuthData(prev => ({ ...prev, [name]: value }));
+            };
+
+            const handleLoginSubmit = async (e) => {
+                e.preventDefault();
+                if (!authData.id || !authData.password) return alert('IDとパスワードを入力してください');
+                
+                try {
+                    const docRef = doc(db, "users", authData.id);
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists() && docSnap.data().password === authData.password) {
+                        const userData = docSnap.data();
+                        setCurrentUser(userData);
+                        setCurrentRole(userData.role);
+                        setIsLoggedIn(true);
+                        
+                        // 本人の場合は過去のデータを復元
+                        if (userData.role === 'employee') {
+                            setCurrentView('detail');
+                            const myCase = cases.find(c => c.id === userData.id);
+                            if (myCase) {
+                                setFormData(myCase);
+                                setCurrentPhase(myCase.phase || 0);
+                            } else {
+                                setFormData({ id: userData.id, empId: userData.id, name: userData.name, pgStep: 1 });
+                                setCurrentPhase(0);
+                            }
+                        } else {
+                            setCurrentView('dashboard');
+                        }
+                    } else {
+                        alert('IDまたはパスワードが間違っています。');
+                    }
+                } catch (error) {
+                    console.error("ログインエラー:", error);
+                }
+            };
+
+            const handleRegisterSubmit = async (e) => {
+                e.preventDefault();
+                if (!authData.id || !authData.password || !authData.name) return alert('必須項目を入力してください');
+                
+                try {
+                    const docRef = doc(db, "users", authData.id);
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) return alert('このID（社員番号）はすでに登録されています。ログイン画面からログインしてください。');
+                    
+                    // データベースの "users" という場所にアカウント情報を保存
+                    const newUser = { id: authData.id, empId: authData.id, name: authData.name, password: authData.password, role: authData.role };
+                    await setDoc(docRef, newUser);
+                    
+                    setCurrentUser(newUser);
+                    setCurrentRole(newUser.role);
+                    setIsLoggedIn(true);
+                    
+                    if (newUser.role === 'employee') {
+                        setCurrentView('detail');
+                        setFormData({ id: newUser.id, empId: newUser.id, name: newUser.name, pgStep: 1 });
+                        setCurrentPhase(0);
+                    } else {
+                        setCurrentView('dashboard');
+                    }
+                } catch (error) {
+                    console.error("登録エラー:", error);
                 }
             };
 
@@ -125,26 +185,64 @@
             const isAdmin = currentRole === 'admin';
 
             const evaluatePrimaryJudgment = (data) => {
-                let level = 0;
-                let reasons = [];
+                let score = 0;
+                let riskDetails = [];
 
-                if(data.mgr_acceptance_concern === 'yes') { level = Math.max(level, 3); reasons.push('職制が復帰後の受け入れ体制に不安を感じている'); }
-                if(data.req_accommodation === 'yes' && data.mgr_needs_accommodation === 'no') { level = Math.max(level, 3); reasons.push('配慮に関する本人と職制の認識相違'); }
-
-                if(data.doctor_restriction === 'yes') { level = Math.max(level, 2); reasons.push('主治医からの就業制限(診断書)あり'); }
-                if(data.has_work_restriction === 'yes') { level = Math.max(level, 2); reasons.push('危険作業・夜勤・運転などの業務に影響・制限あり'); }
-                if(data.leave_duration === 'long') { level = Math.max(level, 2); reasons.push('休業期間が一定以上（長期）'); }
-
-                if(data.has_medical_cert === 'yes') { level = Math.max(level, 1); reasons.push('診断書の提出あり'); }
-                if(data.req_ohp === 'yes') { level = Math.max(level, 1); reasons.push('本人が保健師・産業医面談を希望'); }
-                if(data.mgr_safety_concern === 'yes') { level = Math.max(level, 1); reasons.push('職制が業務上の安全面に不安を感じている'); }
-                if(data.req_accommodation === 'yes' || data.mgr_needs_accommodation === 'yes') { level = Math.max(level, 1); reasons.push('就業上の配慮や調整が必要'); }
-
-                if(level === 0) {
-                    reasons.push('休業期間が短く、勤務制限や不安要素がないため通常勤務可能');
+                // --- 1. 絶対的/医学的リスク (高ウェイト) ---
+                if(data.doctor_restriction === 'yes') { 
+                    score += 10; riskDetails.push('【+10点】 主治医からの就業制限(診断書)あり'); 
+                }
+                if(data.has_work_restriction === 'yes') { 
+                    score += 8; riskDetails.push('【+8点】 危険作業・夜勤・交替・運転業務への影響あり'); 
+                }
+                if(data.leave_duration === 'long') { 
+                    score += 5; riskDetails.push('【+5点】 休業期間が1ヶ月以上の長期'); 
                 }
 
-                return { sys_level: level, sys_reasons: reasons };
+                // --- 2. 職場環境/安全リスク (中ウェイト) ---
+                if(data.mgr_safety_concern === 'yes') { 
+                    score += 5; riskDetails.push('【+5点】 職制が業務上の安全面に不安を感じている'); 
+                }
+                if(data.mgr_acceptance_concern === 'yes') { 
+                    score += 5; riskDetails.push('【+5点】 職制が復帰後の受け入れ体制に不安を感じている'); 
+                }
+
+                // --- 3. 配慮・希望によるリスク (低〜中ウェイト) ---
+                if(data.req_accommodation === 'yes') { 
+                    score += 3; riskDetails.push('【+3点】 本人が就業上の配慮や調整を希望している'); 
+                }
+                if(data.mgr_needs_accommodation === 'yes') { 
+                    score += 3; riskDetails.push('【+3点】 職制が勤務配慮が必要と判断している'); 
+                }
+                if(data.req_ohp === 'yes') { 
+                    score += 2; riskDetails.push('【+2点】 本人が保健師・産業医への相談を希望している'); 
+                }
+                if(data.has_medical_cert === 'yes') { 
+                    score += 1; riskDetails.push('【+1点】 診断書の提出あり (制限有無に関わらず)'); 
+                }
+
+                // --- 4. 認識のズレリスク (加算) ---
+                if(data.req_accommodation === 'yes' && data.mgr_needs_accommodation === 'no') { 
+                    score += 5; riskDetails.push('【+5点】 ⚠ 配慮の必要性について、本人と職制で認識のズレがある'); 
+                }
+
+                // --- スコアによるレベル判定 ---
+                let level = 0;
+                if (score >= 15) {
+                    level = 3;
+                } else if (score >= 8) {
+                    level = 2;
+                } else if (score >= 3) {
+                    level = 1;
+                } else {
+                    level = 0;
+                }
+
+                if(score === 0) {
+                    riskDetails.push('加点となるリスク要因はありません');
+                }
+
+                return { sys_level: level, sys_reasons: riskDetails, total_score: score };
             };
 
             const saveData = async (extraData = {}) => {
@@ -170,21 +268,51 @@
                             <div className="text-center mb-8">
                                 <HeartPulse className="h-12 w-12 text-blue-600 mx-auto mb-3" />
                                 <h1 className="text-2xl font-bold text-slate-800">就業支援プログラム<br/>ポータル</h1>
-                                <p className="text-slate-500 mt-2 text-sm">ログインする役割（ロール）を選択してください。</p>
+                                <p className="text-slate-500 mt-2 text-sm">{isLoginMode ? 'IDとパスワードでログインしてください。' : '新しいアカウントを登録してください。'}</p>
                             </div>
-                            <div className="space-y-4">
-                                {ROLES.map(role => (
-                                    <button key={role.id} onClick={() => handleLogin(role.id)} className="w-full flex items-center justify-between p-4 border border-slate-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-all group">
-                                        <div className="flex items-center gap-3">
-                                            <div className="bg-slate-100 p-2 rounded-md group-hover:bg-blue-100 group-hover:text-blue-600 transition-colors">
-                                                <role.icon className="w-5 h-5 text-slate-600 group-hover:text-blue-600" />
-                                            </div>
-                                            <span className="font-bold text-slate-700">{role.label}</span>
-                                        </div>
-                                        <ChevronRight className="w-5 h-5 text-slate-400 group-hover:text-blue-500" />
-                                    </button>
-                                ))}
-                            </div>
+                            
+                            {}
+                            {isLoginMode ? (
+                                <form onSubmit={handleLoginSubmit} className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">ID (社員番号)</label>
+                                        <input type="text" name="id" value={authData.id} onChange={handleAuthChange} className="w-full p-3 border rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500" placeholder="例: 10001" required />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">パスワード</label>
+                                        <input type="password" name="password" value={authData.password} onChange={handleAuthChange} className="w-full p-3 border rounded-lg bg-slate-50 focus:ring-2 focus:ring-blue-500" placeholder="••••••••" required />
+                                    </div>
+                                    <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg shadow-md transition-colors mt-4">ログイン</button>
+                                    <div className="text-center mt-4">
+                                        <button type="button" onClick={() => setIsLoginMode(false)} className="text-sm text-blue-600 hover:underline font-medium">はじめての方はこちら (新規登録)</button>
+                                    </div>
+                                </form>
+                            ) : (
+                                <form onSubmit={handleRegisterSubmit} className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">ID (社員番号)</label>
+                                        <input type="text" name="id" value={authData.id} onChange={handleAuthChange} className="w-full p-3 border rounded-lg bg-slate-50" placeholder="例: 10001" required />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">氏名</label>
+                                        <input type="text" name="name" value={authData.name} onChange={handleAuthChange} className="w-full p-3 border rounded-lg bg-slate-50" placeholder="例: 山田 太郎" required />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">パスワード設定</label>
+                                        <input type="password" name="password" value={authData.password} onChange={handleAuthChange} className="w-full p-3 border rounded-lg bg-slate-50" placeholder="お好きなパスワード" required />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">役割 (ロール)</label>
+                                        <select name="role" value={authData.role} onChange={handleAuthChange} className="w-full p-3 border rounded-lg bg-slate-50">
+                                            {ROLES.map(r => <option key={r.id} value={r.id}>{r.label}</option>)}
+                                        </select>
+                                    </div>
+                                    <button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg shadow-md transition-colors mt-4">アカウントを作成して進む</button>
+                                    <div className="text-center mt-4">
+                                        <button type="button" onClick={() => setIsLoginMode(true)} className="text-sm text-slate-500 hover:underline font-medium">ログイン画面に戻る</button>
+                                    </div>
+                                </form>
+                            )}
                         </div>
                     </div>
                 );
@@ -203,9 +331,9 @@
                             <div className="flex items-center gap-4 text-sm bg-blue-800 py-1 px-3 rounded-lg border border-blue-700">
                                 <div className="flex items-center gap-2 text-blue-100 pr-4 border-r border-blue-700">
                                     <RoleIcon className="w-4 h-4" />
-                                    <span className="font-bold">{ROLES.find(r => r.id === currentRole)?.label}</span>
+                                    <span className="font-bold">{ROLES.find(r => r.id === currentRole)?.label} {currentUser && `(${currentUser.name})`}</span>
                                 </div>
-                                <button onClick={() => setIsLoggedIn(false)} className="flex items-center gap-1 text-white hover:text-red-300 transition-colors"><LogOut className="w-4 h-4" /> ログアウト</button>
+                                <button onClick={() => { setIsLoggedIn(false); setCurrentUser(null); setFormData({}); }} className="flex items-center gap-1 text-white hover:text-red-300 transition-colors"><LogOut className="w-4 h-4" /> ログアウト</button>
                             </div>
                         </div>
                     </header>
@@ -429,18 +557,23 @@
                                         }`}>
                                             <div className="flex items-start gap-4">
                                                 {formData.sys_level > 0 ? <AlertTriangle className={`w-8 h-8 mt-1 ${formData.sys_level === 3 ? 'text-red-500' : formData.sys_level === 2 ? 'text-orange-500' : 'text-yellow-500'}`}/> : <CheckCircle className="w-8 h-8 mt-1 text-green-500"/>}
-                                                <div>
-                                                    <div className="text-sm font-bold text-slate-500 mb-1">システム一次判定結果</div>
+                                                <div className="flex-1">
+                                                    <div className="flex justify-between items-end mb-2">
+                                                        <div className="text-sm font-bold text-slate-500">システム一次判定結果</div>
+                                                        <div className="text-lg font-black text-slate-700 bg-white px-3 py-1 rounded-full shadow-sm border border-slate-200">
+                                                            総合リスクスコア: <span className={formData.total_score >= 15 ? 'text-red-600' : formData.total_score >= 8 ? 'text-orange-600' : formData.total_score >= 3 ? 'text-yellow-600' : 'text-green-600'}>{formData.total_score || 0}点</span>
+                                                        </div>
+                                                    </div>
                                                     <h3 className={`text-2xl font-black mb-4 ${formData.sys_level === 3 ? 'text-red-700' : formData.sys_level === 2 ? 'text-orange-700' : formData.sys_level === 1 ? 'text-yellow-700' : 'text-green-700'}`}>
                                                         {formData.sys_level === 3 ? 'Level 3: 5者打合せ 要（就業支援PG検討）' :
                                                          formData.sys_level === 2 ? 'Level 2: 産業医面談 要' :
                                                          formData.sys_level === 1 ? 'Level 1: 保健師確認 要' : 'Level 0: 相談不要（通常復帰可）'}
                                                     </h3>
                                                     <div className="bg-white/60 p-4 rounded-lg border border-white/40">
-                                                        <span className="text-sm font-bold text-slate-700 mb-2 block">判定の理由・根拠:</span>
-                                                        <ul className="list-disc pl-5 space-y-1 text-slate-800 font-medium">
+                                                        <span className="text-sm font-bold text-slate-700 mb-2 block">加算されたリスク要因:</span>
+                                                        <ul className="list-disc pl-5 space-y-1 text-slate-800 font-medium text-sm">
                                                             {formData.sys_reasons?.map((reason, idx) => (
-                                                                <li key={idx}>{reason}</li>
+                                                                <li key={idx} className={reason.includes('⚠') ? 'text-red-600 font-bold' : ''}>{reason}</li>
                                                             ))}
                                                         </ul>
                                                     </div>
