@@ -24,7 +24,6 @@
     <style>
         .animate-fade-in-up { animation: fadeInUp 0.4s ease-out forwards; }
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        /* カスタムスクロールバー */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #f1f5f9; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
@@ -43,7 +42,6 @@
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendEmailVerification, multiFactor, PhoneAuthProvider, PhoneMultiFactorGenerator, RecaptchaVerifier, getMultiFactorResolver } from 'firebase/auth';
         import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 
-        // Firebase Configuration
         const firebaseConfig = {
             apiKey: "AIzaSyDHqkBNSSsakVwHxKdWZ4hNoSM9wORbLR4",
             authDomain: "health-support-portal.firebaseapp.com",
@@ -57,8 +55,6 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-
-        // 新規ユーザー作成用のサブインスタンス（管理者がログアウトされないためのハック）
         const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
         const secondaryAuth = getAuth(secondaryApp);
 
@@ -69,7 +65,6 @@
             { id: 'ohp', label: '保健師・産業医', icon: HeartPulse }
         ];
 
-        // PHASESの定義（全5フェーズ + 完了）
         const PHASES = [
             { id: 0, title: '発生報告', desc: '本人入力' },
             { id: 1, title: '職制評価', desc: '上司確認' },
@@ -79,6 +74,128 @@
         ];
 
         const MASTER_ADMIN_EMAIL = "yuuto.kanamori.ma@mcgc.com";
+
+        // 本人用アンケート設問定義
+        const empQuestions = {
+            q1: [
+                ['emp_q1_1', 'Q1-1. 現在、勤務時間に近い時間帯で日中活動できていますか', ['問題なくできている', 'おおむねできている', '少し不安がある', 'できていない']],
+                ['emp_q1_2', 'Q1-2. 所定労働時間に相当する時間、活動を続けられますか', ['問題なくできる', 'おおむねできる', '途中で休憩が必要', '難しい']],
+                ['emp_q1_3', 'Q1-3. 復職後、予定された勤務を継続できる見込みがありますか', ['ある', '少し不安がある', 'かなり不安がある', 'わからない']],
+                ['emp_q1_4', 'Q1-4. 現在の体調は、ここ1〜2週間で安定していますか', ['安定している', 'おおむね安定している', '日によって波がある', '不安定である']],
+                ['emp_q1_5', 'Q1-5. 復職後、急な体調悪化で勤務継続が難しくなる不安はありますか', ['ない', '少しある', 'かなりある', 'わからない']]
+            ],
+            q2: [
+                ['emp_q2_1', 'Q2-1. 業務中に注意力が低下するような症状はありますか', ['ない', '時々ある', 'よくある', '判断できない']],
+                ['emp_q2_2', 'Q2-2. めまい・ふらつき・失神しそうな感じはありますか', ['ない', '時々ある', 'よくある', '判断できない']],
+                ['emp_q2_3', 'Q2-3. 痛み、息切れ、強い疲労感などにより、安全な作業に不安がありますか', ['ない', '少しある', 'かなりある', '判断できない']],
+                ['emp_q2_4', 'Q2-4. 服薬や治療の影響で、眠気・集中力低下・動作の遅れなどがありますか', ['ない', '少しある', 'かなりある', 'わからない']],
+                ['emp_q2_5', 'Q2-5. 自分自身で「安全に働ける状態」と思いますか', ['思う', 'おおむね思う', '少し不安がある', '不安が大きい']]
+            ],
+            q3: [
+                ['emp_q3_1', 'Q3-1. 起床時刻は安定していますか', ['安定している', 'おおむね安定している', '日によってばらつきがある', '安定していない']],
+                ['emp_q3_2', 'Q3-2. 睡眠時間は確保できていますか', ['確保できている', 'おおむね確保できている', '不足する日がある', 'ほとんど確保できていない']],
+                ['emp_q3_3', 'Q3-3. 睡眠の質は安定していますか', ['安定している', 'おおむね安定している', 'やや不安定', '不安定']],
+                ['emp_q3_4', 'Q3-4. 日中に強い眠気やだるさがありますか', ['ない', '時々ある', 'よくある', 'ほぼ毎日ある']],
+                ['emp_q3_5', 'Q3-5. 食事・服薬・通院など、健康管理を継続できていますか', ['できている', 'おおむねできている', '一部できていない', 'できていない']]
+            ],
+            q4a: [
+                ['emp_q4a_1', 'Q4A-1. 座って作業を続けることに支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
+                ['emp_q4a_2', 'Q4A-2. パソコン作業や書類作業に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
+                ['emp_q4a_3', 'Q4A-3. 業務中、集中力を保てそうですか', ['保てる', 'おおむね保てる', '少し不安がある', '難しい']],
+                ['emp_q4a_4', 'Q4A-4. 電話、メール、会議などの対応に不安はありませんか', ['不安なし', '少し不安あり', '強い不安あり', '判断できない']],
+                ['emp_q4a_5', 'Q4A-5. 通勤に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']]
+            ],
+            q4b: [
+                ['emp_q4b_1', 'Q4B-1. 立ち作業を行うことに支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
+                ['emp_q4b_2', 'Q4B-2. 職場内の歩行や移動に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
+                ['emp_q4b_3', 'Q4B-3. 階段昇降、しゃがむ、かがむ、手を伸ばすなどの動作に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
+                ['emp_q4b_4', 'Q4B-4. 作業手順を守り、安全確認を行いながら作業できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']],
+                ['emp_q4b_5', 'Q4B-5. 重量物の取り扱い、工具使用、機械操作などに不安はありませんか', ['該当業務なし', '不安なし', '少し不安あり', '強い不安あり']],
+                ['emp_q4b_6', 'Q4B-6. 痛み、疲労、眠気、集中力低下などにより作業ミスが起こる不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']]
+            ],
+            q4c: [
+                ['emp_q4c_1', 'Q4C-1. 交替勤務に戻ることについて、体力面の不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
+                ['emp_q4c_2', 'Q4C-2. 夜勤または早朝勤務に対応できる見込みがありますか', ['対応できる', 'おおむね対応できる', '少し不安がある', '難しい']],
+                ['emp_q4c_3', 'Q4C-3. 勤務間の休息で疲労回復できる見込みがありますか', ['できる', 'おおむねできる', '少し不安がある', '難しい']],
+                ['emp_q4c_4', 'Q4C-4. 睡眠時間がずれる勤務でも、体調を維持できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']],
+                ['emp_q4c_5', 'Q4C-5. 夜勤中または早朝勤務中に、眠気や集中力低下の不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
+                ['emp_q4c_6', 'Q4C-6. 交替勤務に復帰する前に、日勤勤務や段階的勤務が必要だと思いますか', ['不要', 'あると安心', '必要', '判断できない']]
+            ],
+            q5: [
+                ['emp_q5_1', 'Q5-1. 復職に対して強い不安がありますか', ['ない', '少しある', 'かなりある', 'とても強い']],
+                ['emp_q5_2', 'Q5-2. 職場の人間関係について不安がありますか', ['ない', '少しある', 'かなりある', 'とても強い']],
+                ['emp_q5_3', 'Q5-3. 復職後に配慮してほしいことがありますか', ['ない', 'ある', 'わからない', '無回答']],
+                ['emp_q5_4', 'Q5-4. 復職後、困った時に相談できる相手が職場にいますか', ['いる', 'たぶんいる', 'いない', 'わからない']],
+                ['emp_q5_5', 'Q5-5. 復職後に体調悪化のサインが出た場合、自分で相談・報告できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']]
+            ]
+        };
+
+        // 職制用アンケート設問定義
+        const mgrQuestions = {
+            q1: [
+                ['mgr_q1_1', 'Q1-1. 本人が所定労働時間の勤務を継続できる見込みはありますか', ['ある', 'おおむねある', '少し不安がある', '判断できない']],
+                ['mgr_q1_2', 'Q1-2. 復職直後の業務量を調整できますか', ['調整できる', '一部調整できる', '調整が難しい', '判断できない']],
+                ['mgr_q1_3', 'Q1-3. 残業を制限する必要がある場合、対応できますか', ['対応できる', '一部対応できる', '対応困難', '該当なし']],
+                ['mgr_q1_4', 'Q1-4. 本人の体調変化に気づける職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']]
+            ],
+            q2: [
+                ['mgr_q2_1', 'Q2-1. 復職後の業務に安全上の懸念はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
+                ['mgr_q2_2', 'Q2-2. 予定業務に、事故や災害につながりやすい作業はありますか', ['ない', 'ある', '判断できない', '無回答']],
+                ['mgr_q2_3', 'Q2-3. 体調や集中力の低下が、安全に影響する可能性はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
+                ['mgr_q2_4', 'Q2-4. 安全上必要な配慮や作業制限を実施できますか', ['実施できる', '一部実施できる', '実施困難', '判断できない']],
+                ['mgr_q2_5', 'Q2-5. 復職直後に単独作業を避けるなどの対応は可能ですか', ['可能', '一部可能', '困難', '該当なし']]
+            ],
+            q3: [
+                ['mgr_q3_1', 'Q3-1. 復職直後から現在の勤務形態に戻すことに不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
+                ['mgr_q3_2', 'Q3-2. 日勤固定など、段階的な復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']],
+                ['mgr_q3_3', 'Q3-3. 通院や治療継続に必要な勤務配慮は可能ですか', ['可能', '一部可能', '困難', '不明']]
+            ],
+            q4a: [
+                ['mgr_q4a_1', 'Q4A-1. 復職後の業務は、主に座位で対応可能ですか', ['可能', '一部可能', '困難', '該当なし']],
+                ['mgr_q4a_2', 'Q4A-2. 業務量や納期負荷を一時的に調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']],
+                ['mgr_q4a_3', 'Q4A-3. 会議、電話、対人対応などの負荷を調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']],
+                ['mgr_q4a_4', 'Q4A-4. 復職直後に確認・フォローできる担当者はいますか', ['いる', '一部対応可能', 'いない', '未定']]
+            ],
+            q4b: [
+                ['mgr_q4b_1', 'Q4B-1. 立ち作業や歩行を減らす配慮は可能ですか', ['可能', '一部可能', '困難', '該当なし']],
+                ['mgr_q4b_2', 'Q4B-2. 重量物、無理な姿勢、階段昇降などを制限できますか', ['可能', '一部可能', '困難', '該当なし']],
+                ['mgr_q4b_3', 'Q4B-3. 機械操作、工具使用、車両運転などを一時的に制限できますか', ['可能', '一部可能', '困難', '該当なし']],
+                ['mgr_q4b_4', 'Q4B-4. 復職直後に単独作業を避け、周囲が確認できる体制を取れますか', ['可能', '一部可能', '困難', '該当なし']],
+                ['mgr_q4b_5', 'Q4B-5. 本人の状態に合わせて作業内容を変更できますか', ['可能', '一部可能', '困難', '判断できない']]
+            ],
+            q4c: [
+                ['mgr_q4c_1', 'Q4C-1. 復職直後から交替勤務に戻す必要がありますか', ['いいえ', 'できれば戻したい', '必要がある', '判断できない']],
+                ['mgr_q4c_2', 'Q4C-2. 一定期間、日勤固定での復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']],
+                ['mgr_q4c_3', 'Q4C-3. 夜勤回数を一時的に減らすことは可能ですか', ['可能', '一部可能', '困難', '該当なし']],
+                ['mgr_q4c_4', 'Q4C-4. 勤務間インターバルや休息を確保する配慮は可能ですか', ['可能', '一部可能', '困難', '判断できない']],
+                ['mgr_q4c_5', 'Q4C-5. 夜勤中や早朝勤務中に安全確認・フォローできる体制はありますか', ['ある', '一部ある', '不十分', '判断できない']]
+            ],
+            q5: [
+                ['mgr_q5_1', 'Q5-1. 復職後、本人に定期的に声かけ・確認を行えますか', ['行える', '一部行える', '難しい', '未定']],
+                ['mgr_q5_2', 'Q5-2. 本人が相談しやすい職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']],
+                ['mgr_q5_3', 'Q5-3. 体調不良があった場合、早めに保健師・人事へ相談できますか', ['できる', 'おおむねできる', '難しい', '判断できない']],
+                ['mgr_q5_4', 'Q5-4. 本人の復職について、職場として懸念していることはありますか', ['ない', 'ある', '判断できない', '無回答']],
+                ['mgr_q5_5', 'Q5-5. 復職前に保健師または産業医へ相談したいですか', ['不要', '保健師へ相談したい', '産業医へ相談したい', '判断できない']]
+            ]
+        };
+
+        const renderQ = (id, title, options, disabled, formData, handleInputChange) => (
+            <div key={id} className="flex flex-col p-4 bg-white border border-slate-200 rounded-lg shadow-sm mb-4">
+                <span className="text-slate-700 font-bold mb-3 text-sm leading-relaxed">{title}</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
+                    {options.map((opt, i) => (
+                        <label key={i} className="flex items-center gap-2 cursor-pointer p-2 bg-slate-50 rounded border border-slate-200 hover:bg-blue-50 transition-colors">
+                            <input type="radio" name={id} value={String(i+1)} checked={String(formData[id]) === String(i+1)} onChange={handleInputChange} disabled={disabled} className="w-4 h-4 text-blue-600 disabled:opacity-50"/>
+                            <span className="text-slate-700 font-medium text-xs">{opt}</span>
+                        </label>
+                    ))}
+                </div>
+            </div>
+        );
+
+        const renderText = (id, placeholder, disabled, formData, handleInputChange) => (
+            <textarea name={id} value={formData[id] || ''} onChange={handleInputChange} disabled={disabled} placeholder={placeholder} className="w-full p-3 border border-slate-300 rounded-md bg-white h-24 mb-4 disabled:bg-slate-100 disabled:text-slate-500 text-sm focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+        );
 
         function HealthSupportPortal() {
             const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -109,7 +226,6 @@
             const [adminCreateMsg, setAdminCreateMsg] = useState({ type: '', text: '' });
             const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
 
-            // 実際の進捗フェーズ
             const actualPhase = formData.phase || 0;
 
             useEffect(() => {
@@ -129,19 +245,11 @@
                                 const docSnap = await getDoc(docRef);
                                 if (docSnap.exists()) {
                                     let userData = docSnap.data();
-                                    setCurrentUser(userData);
-                                    setCurrentRole(userData.role);
-                                    setIsLoggedIn(true);
-                                    if (userData.role === 'employee') setCurrentView('detail');
-                                    else setCurrentView('dashboard');
-                                } else {
-                                    handleLogout();
-                                }
+                                    setCurrentUser(userData); setCurrentRole(userData.role); setIsLoggedIn(true);
+                                    if (userData.role === 'employee') setCurrentView('detail'); else setCurrentView('dashboard');
+                                } else { handleLogout(); }
                             }
-                        } catch (error) {
-                            console.error("Session Restore Error:", error);
-                            handleLogout();
-                        }
+                        } catch (error) { handleLogout(); }
                     }
                 });
                 return () => unsubscribe();
@@ -181,9 +289,7 @@
             };
 
             const executeAuth = async (e) => {
-                e.preventDefault();
-                if (isLockedOut) return;
-                setAuthErrorMsg('');
+                e.preventDefault(); if (isLockedOut) return; setAuthErrorMsg('');
                 try {
                     if (authMode === 'login') {
                         const userCredential = await signInWithEmailAndPassword(auth, authData.email, authData.password);
@@ -206,59 +312,42 @@
                     if (error.code === 'auth/multi-factor-auth-required') {
                         try {
                             const resolver = getMultiFactorResolver(auth, error);
-                            setMfaResolver(resolver);
-                            setupRecaptcha();
+                            setMfaResolver(resolver); setupRecaptcha();
                             const phoneInfoOptions = { multiFactorHint: resolver.hints[0], session: resolver.session };
                             const phoneAuthProvider = new PhoneAuthProvider(auth);
                             const vId = await phoneAuthProvider.verifyPhoneNumber(phoneInfoOptions, window.recaptchaVerifier);
-                            setVerificationId(vId);
-                            setAuthStep('verify_signin');
-                        } catch (mfaError) {
-                            setAuthErrorMsg("認証コードの送信に失敗しました。");
-                        }
+                            setVerificationId(vId); setAuthStep('verify_signin');
+                        } catch (mfaError) { setAuthErrorMsg("認証コードの送信に失敗しました。"); }
                     } else {
-                        setLoginAttempts(prev => prev + 1);
-                        setAuthErrorMsg("認証に失敗しました。メールアドレスとパスワードを確認してください。");
+                        setLoginAttempts(prev => prev + 1); setAuthErrorMsg("認証に失敗しました。メールアドレスとパスワードを確認してください。");
                     }
                 }
             };
 
             const checkEmailVerification = async () => {
                 setAuthErrorMsg('');
-                try {
-                    await auth.currentUser.reload();
-                    if (auth.currentUser.emailVerified) setAuthStep('enroll_phone');
-                    else setAuthErrorMsg("まだメールの確認が完了していません。");
-                } catch (error) { handleLogout(); }
+                try { await auth.currentUser.reload(); if (auth.currentUser.emailVerified) setAuthStep('enroll_phone'); else setAuthErrorMsg("まだメールの確認が完了していません。"); } catch (error) { handleLogout(); }
             };
-            
             const resendVerificationEmail = async () => {
-                try { await sendEmailVerification(auth.currentUser); setAuthErrorMsg("確認メールを再送信しました。"); } 
-                catch (error) { setAuthErrorMsg("メールの送信に失敗しました。"); }
+                try { await sendEmailVerification(auth.currentUser); setAuthErrorMsg("確認メールを再送信しました。"); } catch (error) { setAuthErrorMsg("メールの送信に失敗しました。"); }
             };
 
             const startMfaEnrollment = async (e) => {
-                e.preventDefault();
-                setAuthErrorMsg('');
+                e.preventDefault(); setAuthErrorMsg('');
                 try {
                     const formattedPhone = formatPhoneNumber(phoneNumber);
-                    if (formattedPhone === '+819000000000') {
-                         setVerificationId('dummy'); setAuthStep('verify_enroll'); return;
-                    }
+                    if (formattedPhone === '+819000000000') { setVerificationId('dummy'); setAuthStep('verify_enroll'); return; }
                     setupRecaptcha();
-                    const user = auth.currentUser;
-                    const session = await multiFactor(user).getSession();
+                    const user = auth.currentUser; const session = await multiFactor(user).getSession();
                     const phoneInfoOptions = { phoneNumber: formattedPhone, session };
                     const phoneAuthProvider = new PhoneAuthProvider(auth);
                     const vId = await phoneAuthProvider.verifyPhoneNumber(phoneInfoOptions, window.recaptchaVerifier);
-                    setVerificationId(vId);
-                    setAuthStep('verify_enroll');
+                    setVerificationId(vId); setAuthStep('verify_enroll');
                 } catch (error) { setAuthErrorMsg("電話番号の確認に失敗しました。"); }
             };
 
             const verifyCodeAndEnroll = async (e) => {
-                e.preventDefault();
-                setAuthErrorMsg('');
+                e.preventDefault(); setAuthErrorMsg('');
                 try {
                     if (verificationId === 'dummy' && verificationCode === '123456') { await finalizeLogin(auth.currentUser); return; }
                     const cred = PhoneAuthProvider.credential(verificationId, verificationCode);
@@ -270,8 +359,7 @@
             };
 
             const verifyCodeAndSignIn = async (e) => {
-                e.preventDefault();
-                setAuthErrorMsg('');
+                e.preventDefault(); setAuthErrorMsg('');
                 try {
                     const cred = PhoneAuthProvider.credential(verificationId, verificationCode);
                     const assertion = PhoneMultiFactorGenerator.assertion(cred);
@@ -286,15 +374,11 @@
                     const docSnap = await getDoc(docRef);
                     if (docSnap.exists()) {
                         let userData = docSnap.data();
-                        if (user.email === MASTER_ADMIN_EMAIL && userData.role !== 'admin') {
-                            userData.role = 'admin';
-                            await setDoc(docRef, { role: 'admin' }, { merge: true });
-                        }
+                        if (user.email === MASTER_ADMIN_EMAIL && userData.role !== 'admin') { userData.role = 'admin'; await setDoc(docRef, { role: 'admin' }, { merge: true }); }
                         setCurrentUser(userData); setCurrentRole(userData.role); setIsLoggedIn(true); setLoginAttempts(0);
                         if (userData.role === 'employee') {
                             const myCase = cases.find(c => c.uid === user.uid);
-                            if (myCase) openCase(myCase);
-                            else { setCurrentView('detail'); setFormData({ uid: user.uid, empId: userData.empId, name: userData.name }); setCurrentPhase(0); }
+                            if (myCase) openCase(myCase); else { setCurrentView('detail'); setFormData({ uid: user.uid, empId: userData.empId, name: userData.name }); setCurrentPhase(0); }
                         } else { setCurrentView('dashboard'); }
                     } else {
                         const newRole = user.email === MASTER_ADMIN_EMAIL ? 'admin' : 'employee';
@@ -315,8 +399,7 @@
             };
 
             const handleCreateUserByAdmin = async (e) => {
-                e.preventDefault();
-                setAdminCreateMsg({ type: '', text: '' });
+                e.preventDefault(); setAdminCreateMsg({ type: '', text: '' });
                 try {
                     const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newUserData.email, newUserData.password);
                     const newUser = userCredential.user;
@@ -335,22 +418,15 @@
             };
 
             const startDemoLogin = (roleId) => {
-                setIsDemoMode(true);
-                setCurrentRole(roleId);
-                setCurrentUser({ name: 'デモユーザー', role: roleId, empId: '99999' });
-                setIsLoggedIn(true);
-                
-                // ダミーデータをセットして様々なフェーズが確認できるようにする
+                setIsDemoMode(true); setCurrentRole(roleId); setCurrentUser({ name: 'デモユーザー', role: roleId, empId: '99999' }); setIsLoggedIn(true);
                 if (roleId === 'employee') {
-                    setCurrentView('detail');
-                    setFormData({ id: 'demo_case', empId: '99999', name: 'デモユーザー', department: 'デモ部', phase: 0 });
-                    setCurrentPhase(0);
+                    setCurrentView('detail'); setFormData({ id: 'demo_case', empId: '99999', name: 'デモユーザー', department: 'デモ部', phase: 0 }); setCurrentPhase(0);
                 } else {
                     setCurrentView('dashboard');
                     setCases([
-                        { id: 'd1', empId: '10001', name: '山田 太郎', department: '営業部', phase: 0, symptom: '腰痛', absence_duration: 'over_1week' },
-                        { id: 'd2', empId: '10002', name: '佐藤 花子', department: '総務部', phase: 1, symptom: '適応障害', q_request_ohp: 'yes' },
-                        { id: 'd3', empId: '10003', name: '鈴木 一郎', department: '製造部', phase: 2, mgr_safety_concern: 'yes', mgr_need_care: 'yes' },
+                        { id: 'd1', empId: '10001', name: '山田 太郎', department: '営業部', phase: 0, emp_q0_1: '1' },
+                        { id: 'd2', empId: '10002', name: '佐藤 花子', department: '総務部', phase: 1, emp_q0_1: '2', emp_work_style: '1' },
+                        { id: 'd3', empId: '10003', name: '鈴木 一郎', department: '製造部', phase: 2, mgr_q2_1: '3', mgr_q2_4: '3', emp_work_style: '2' },
                         { id: 'd4', empId: '10004', name: '高橋 健太', department: '開発部', phase: 3, report_health: '安定しています', report_desire: 'prepare' },
                         { id: 'd5', empId: '10005', name: '伊藤 美咲', department: '人事部', phase: 4, emp_q1: '4', mgr_q1: '3' },
                     ]);
@@ -362,21 +438,10 @@
                 }
             };
 
-            const openCase = (caseData) => {
-                setFormData(caseData);
-                setCurrentPhase(caseData.phase || 0);
-                setCurrentView('detail');
-            };
-
-            const handleInputChange = (e) => {
-                const { name, value } = e.target;
-                setFormData(prev => ({ ...prev, [name]: value }));
-            };
-            const handleCheckboxChange = (e) => {
-                const { name, checked } = e.target;
-                setFormData(prev => ({ ...prev, [name]: checked }));
-            };
-
+            const openCase = (caseData) => { setFormData(caseData); setCurrentPhase(caseData.phase || 0); setCurrentView('detail'); };
+            const handleInputChange = (e) => { const { name, value } = e.target; setFormData(prev => ({ ...prev, [name]: value })); };
+            const handleCheckboxChange = (e) => { const { name, checked } = e.target; setFormData(prev => ({ ...prev, [name]: checked })); };
+            
             const canEdit = (role) => currentRole === 'admin' || currentRole === role;
             const currentRoleLabel = ROLES.find(r => r.id === currentRole)?.label;
             const CurrentRoleIcon = ROLES.find(r => r.id === currentRole)?.icon || User;
@@ -386,49 +451,52 @@
                 const newData = { ...formData, ...extraData };
                 setFormData(newData);
                 if (extraData.phase !== undefined) setCurrentPhase(extraData.phase);
-
                 if (!isDemoMode) {
-                    try {
-                        const saveId = newData.id || `case_${Date.now()}`;
-                        await setDoc(doc(db, "cases", saveId), { ...newData, id: saveId }, { merge: true });
-                        if (!newData.id) setFormData(prev => ({ ...prev, id: saveId }));
-                    } catch (error) { console.error("保存エラー:", error); }
+                    try { const saveId = newData.id || `case_${Date.now()}`; await setDoc(doc(db, "cases", saveId), { ...newData, id: saveId }, { merge: true }); if (!newData.id) setFormData(prev => ({ ...prev, id: saveId })); } catch (error) {}
                 }
             };
 
             const requestConfirm = (message, action) => { setConfirmDialog({ isOpen: true, message, onConfirm: action }); };
             const resetData = () => {
-                requestConfirm("現在入力中のデータを初期化(Phase 0)に戻します。本当によろしいですか？", async () => {
+                requestConfirm("現在入力中のデータを初期化(Phase 0)に戻します。よろしいですか？", async () => {
                     const newData = { id: formData.id, uid: formData.uid, empId: formData.empId, name: formData.name, department: formData.department, phase: 0 };
                     setFormData(newData); setCurrentPhase(0);
                     if (!isDemoMode && formData.id) await setDoc(doc(db, "cases", formData.id), newData);
                 });
             };
-            const deleteCase = (caseId, caseName) => {
-                requestConfirm(`${caseName}さんのデータを完全に削除します。よろしいですか？`, async () => {
-                    if (!isDemoMode) { try { await deleteDoc(doc(db, "cases", caseId)); } catch (error) {} } 
-                    else { setCases(cases.filter(c => c.id !== caseId)); }
-                });
-            };
-            const updateUserRole = (targetUserId, targetEmail, newRole) => {
-                if (targetEmail === MASTER_ADMIN_EMAIL && newRole !== 'admin') return;
-                requestConfirm("権限を更新します。よろしいですか？", async () => {
-                    if (!isDemoMode) { try { await setDoc(doc(db, "users", targetUserId), { role: newRole }, { merge: true }); } catch (error) {} } 
-                    else { setUsersList(usersList.map(u => u.id === targetUserId ? { ...u, role: newRole } : u)); }
-                });
-            };
+            const deleteCase = (caseId, caseName) => { requestConfirm(`${caseName}さんのデータを削除します。よろしいですか？`, async () => { if (!isDemoMode) { try { await deleteDoc(doc(db, "cases", caseId)); } catch (error) {} } else { setCases(cases.filter(c => c.id !== caseId)); } }); };
+            const updateUserRole = (targetUserId, targetEmail, newRole) => { if (targetEmail === MASTER_ADMIN_EMAIL && newRole !== 'admin') return; requestConfirm("権限を更新します。よろしいですか？", async () => { if (!isDemoMode) { try { await setDoc(doc(db, "users", targetUserId), { role: newRole }, { merge: true }); } catch (error) {} } else { setUsersList(usersList.map(u => u.id === targetUserId ? { ...u, role: newRole } : u)); } }); };
 
             const calculateRiskScore = () => {
                 let score = 0; let reasons = [];
-                if (formData.q_doc_restriction === 'yes') { score += 10; reasons.push('主治医から勤務制限あり (+10)'); }
-                if (formData.q_danger_work === 'yes') { score += 8; reasons.push('危険作業・夜勤・運転等への影響あり (+8)'); }
-                if (formData.q_absence === 'long') { score += 5; reasons.push('長期間の休業 (+5)'); }
-                if (formData.mgr_safety_concern === 'yes') { score += 5; reasons.push('職制が安全面等に不安を感じている (+5)'); }
-                if (formData.q_request_ohp === 'yes') { score += 2; reasons.push('本人が保健師相談を希望 (+2)'); }
-                if (formData.q_request_care === 'yes') { score += 3; reasons.push('本人が職場の配慮を希望 (+3)'); }
-                if (formData.q_request_care === 'yes' && formData.mgr_need_care === 'no') { score += 5; reasons.push('配慮に関する本人と職制の認識ズレ (+5)'); }
+                let isLevel3 = false; let isLevel2 = false; let isLevel1 = false;
+
+                // 本人回答からの強制フラグ
+                if (formData.emp_q0_2 === '2') { reasons.push('主治医から就業制限あり (+Lv2)'); isLevel2 = true; }
+                if (formData.emp_q0_1 === '4') { reasons.push('復職可能と言われていない (+Lv3)'); isLevel3 = true; }
+                if (formData.emp_q1_2 === '4' || formData.emp_q1_3 === '3' || formData.emp_q1_3 === '4') { reasons.push('勤務継続に「難しい・不安」がある (+Lv2)'); isLevel2 = true; }
+                if (formData.emp_q3_2 === '4' || formData.emp_q3_3 === '4') { reasons.push('睡眠が不安定・不足している (+Lv2)'); isLevel2 = true; }
+                if (formData.emp_q2_1 === '3' || formData.emp_q3_4 === '3' || formData.emp_q3_4 === '4') { reasons.push('強い眠気や集中力低下がある (+Lv2)'); isLevel2 = true; }
+                if (formData.emp_q2_2 === '3') { reasons.push('めまい・ふらつき・失神等の不安がある (+Lv2)'); isLevel2 = true; }
+                if (formData.emp_q5_1 === '4') { reasons.push('復職への「とても強い不安」がある (+Lv2)'); isLevel2 = true; }
+                if (formData.emp_q5_2 === '3' || formData.emp_q5_2 === '4') { reasons.push('職場の人間関係に強い不安がある (+Lv2)'); isLevel2 = true; }
+                if (formData.emp_q4c_1 === '3' || formData.emp_q4c_2 === '4' || formData.emp_q4c_5 === '3') { reasons.push('交替勤務復帰への強い不安がある (+Lv2)'); isLevel2 = true; }
+                if (formData.emp_q1_4 === '4') { reasons.push('直近の体調が不安定である (+Lv2)'); isLevel2 = true; }
+
+                // 職制回答からの強制フラグ
+                if (formData.mgr_q2_1 === '3') { reasons.push('業務に安全上の懸念あり(職制評価) (+Lv3)'); isLevel3 = true; }
+                if (formData.mgr_q2_4 === '3') { reasons.push('必要な配慮の実施が現場で困難 (+Lv3)'); isLevel3 = true; }
+                if (formData.mgr_q0_3 === '4') { reasons.push('復職後の業務内容が未定 (+Lv2)'); isLevel2 = true; }
+                if (formData.mgr_q2_5 === '3') { reasons.push('単独作業や危険作業を避けられない (+Lv3)'); isLevel3 = true; }
+                if (formData.mgr_q4c_1 === '3') { reasons.push('交替勤務をすぐ再開する必要がある (+Lv2)'); isLevel2 = true; }
+                if (formData.mgr_q5_4 === '2') { reasons.push('職場として受入れに強い懸念がある (+Lv2)'); isLevel2 = true; }
+                if (formData.mgr_q5_5 === '2') { reasons.push('職制が保健師相談を希望している (+Lv1)'); isLevel1 = true; }
+                if (formData.mgr_q5_5 === '3') { reasons.push('職制が産業医相談を希望している (+Lv2)'); isLevel2 = true; }
+
                 let level = 0;
-                if (score >= 15) level = 3; else if (score >= 8) level = 2; else if (score >= 3) level = 1;
+                if (isLevel3) level = 3; else if (isLevel2) level = 2; else if (isLevel1) level = 1;
+
+                if (level === 3) score = 15; else if (level === 2) score = 10; else if (level === 1) score = 5; else score = 0;
                 return { score, level, reasons };
             };
 
@@ -438,10 +506,7 @@
                         <div id="recaptcha-container"></div>
                         <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-slate-100 relative overflow-hidden">
                             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-600"></div>
-                            <div className="text-center mb-6">
-                                <Shield className="h-12 w-12 text-indigo-600 mx-auto mb-3" />
-                                <h1 className="text-2xl font-black text-slate-800 tracking-tight">就業支援プログラム<br/>ポータル</h1>
-                            </div>
+                            <div className="text-center mb-6"><Shield className="h-12 w-12 text-indigo-600 mx-auto mb-3" /><h1 className="text-2xl font-black text-slate-800 tracking-tight">就業支援プログラム<br/>ポータル</h1></div>
 
                             {authStep === 'email_password' && (
                                 <form onSubmit={executeAuth} className="space-y-4 animate-fade-in-up">
@@ -485,7 +550,6 @@
                                     <button type="button" onClick={() => { setAuthStep('email_password'); setVerificationCode(''); try{if(window.recaptchaVerifier) window.recaptchaVerifier.clear();}catch(e){} window.recaptchaVerifier=null; }} className="w-full mt-2 text-sm text-slate-500 hover:text-slate-700 font-bold">最初からやり直す</button>
                                 </form>
                             )}
-
                             <div className="mt-8 pt-6 border-t border-slate-200">
                                 <p className="text-xs text-slate-500 font-bold text-center mb-3">【開発用】認証をスキップして画面を確認</p>
                                 <div className="grid grid-cols-2 gap-2">
@@ -499,8 +563,6 @@
                 );
             }
 
-            
-            // 権限ごとの表示・編集ロジック用変数
             const isActive0 = actualPhase === 0; const canEdit0 = canEdit('employee') && isActive0;
             const isActive1 = actualPhase === 1; const canEdit1 = canEdit('manager') && isActive1;
             const isActive2 = actualPhase === 2; const canEdit2 = (canEdit('ohp') || isAdmin) && isActive2;
@@ -681,7 +743,8 @@
                                                 <Clock className="w-12 h-12 text-slate-300 mx-auto mb-4" /><h3 className="text-xl font-bold text-slate-700 mb-2">本人の入力待ち</h3><p className="text-slate-500">現在、対象者が状況を入力中です。</p>
                                             </div>
                                         ) : (
-                                            <div className="space-y-8">
+                                            <div className="space-y-10">
+                                                {/* 1. 基本情報 */}
                                                 <section>
                                                     <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span> 基本情報</h3>
                                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
@@ -696,25 +759,82 @@
                                                     </div>
                                                 </section>
 
-                                                <section>
-                                                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">2</span> 勤務への影響チェック</h3>
-                                                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-4">
-                                                        {[
-                                                            { name: 'q_doc_restriction', label: '主治医から勤務制限を言われていますか？' },
-                                                            { name: 'q_danger_work', label: '危険作業、運転業務、夜勤・交替勤務に制限がありますか？' },
-                                                            { name: 'q_commute', label: '通勤に支障がありますか？' }
-                                                        ].map(q => (
-                                                            <div key={q.name} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-white border border-slate-200 rounded-md">
-                                                                <span className="text-slate-700 font-medium mb-2 sm:mb-0 text-sm">{q.label}</span>
-                                                                <div className="flex gap-4">
-                                                                    <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name={q.name} value="yes" checked={formData[q.name] === 'yes'} onChange={handleInputChange} disabled={!canEdit0} className="w-4 h-4 text-blue-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">はい</span></label>
-                                                                    <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name={q.name} value="no" checked={formData[q.name] === 'no'} onChange={handleInputChange} disabled={!canEdit0} className="w-4 h-4 text-blue-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">いいえ</span></label>
+                                                {/* 2. 復職判定アンケート (本人用) */}
+                                                <section className="mt-8 border-t border-slate-200 pt-8">
+                                                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">2</span> 復職判定用アンケート</h3>
+                                                    <div className="bg-slate-50 p-6 rounded-lg border border-slate-200 space-y-8">
+                                                        
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">0. 基本確認</h4>
+                                                            {renderQ('emp_q0_1', 'Q0-1. 今回の休業理由について、主治医から復職可能と説明されていますか', ['できると言われている', '条件付きでできると言われている', 'まだ相談できていない', '復職可能とは言われていない'], !canEdit0, formData, handleInputChange)}
+                                                            {renderQ('emp_q0_2', 'Q0-2. 主治医から就業上の配慮や制限を指示されていますか', ['なし', 'あり', '不明'], !canEdit0, formData, handleInputChange)}
+                                                            {formData.emp_q0_2 === '2' && (
+                                                                <div className="mb-4 pl-4">
+                                                                    <label className="block text-xs font-bold text-slate-700 mb-1">配慮・制限の詳細（自由記載）</label>
+                                                                    {renderText('emp_q0_2_detail', '残業制限、夜勤制限、重量物制限など', !canEdit0, formData, handleInputChange)}
                                                                 </div>
+                                                            )}
+                                                            {renderQ('emp_work_style', '【重要】あなたの勤務形態を選択してください（これ以降の設問が変化します）', ['デスクワーク（日勤）', '現場勤務・昼専', '交替勤務', 'その他'], !canEdit0, formData, handleInputChange)}
+                                                        </div>
+
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">1. 勤務継続能力</h4>
+                                                            {empQuestions.q1.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}
+                                                        </div>
+
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">2. 安全就業能力</h4>
+                                                            {empQuestions.q2.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}
+                                                        </div>
+
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">3. 生活リズム安定性</h4>
+                                                            {empQuestions.q3.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}
+                                                        </div>
+
+                                                        {formData.emp_work_style === '1' && (
+                                                            <div>
+                                                                <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">4-A. 業務遂行能力 (デスクワーク)</h4>
+                                                                {empQuestions.q4a.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}
                                                             </div>
-                                                        ))}
+                                                        )}
+                                                        {formData.emp_work_style === '2' && (
+                                                            <div>
+                                                                <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">4-B. 業務遂行能力 (現場勤務)</h4>
+                                                                {empQuestions.q4b.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}
+                                                            </div>
+                                                        )}
+                                                        {formData.emp_work_style === '3' && (
+                                                            <div>
+                                                                <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">4-C. 業務遂行能力 (交替勤務)</h4>
+                                                                {empQuestions.q4c.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}
+                                                            </div>
+                                                        )}
+
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">5. 職場適応性・心理面</h4>
+                                                            {empQuestions.q5.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}
+                                                            {formData.emp_q5_3 === '2' && (
+                                                                <div className="mb-4 pl-4">
+                                                                    <label className="block text-xs font-bold text-slate-700 mb-1">配慮してほしいことの詳細</label>
+                                                                    {renderText('emp_q5_3_detail', '業務量、残業、人間関係など', !canEdit0, formData, handleInputChange)}
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">6. 本人からの自由記載</h4>
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-1. 復職にあたり、会社に伝えておきたいこと</label>
+                                                            {renderText('emp_q6_1', '', !canEdit0, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-2. 現在、不安に感じていること</label>
+                                                            {renderText('emp_q6_2', '', !canEdit0, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-3. 復職後、避けたい・配慮してほしい業務</label>
+                                                            {renderText('emp_q6_3', '', !canEdit0, formData, handleInputChange)}
+                                                        </div>
                                                     </div>
                                                 </section>
 
+                                                {/* 3. 休業中の連絡体制 */}
                                                 <section>
                                                     <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">3</span> 休業中の連絡体制について</h3>
                                                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -738,28 +858,9 @@
                                                     </div>
                                                 </section>
 
+                                                {/* 4. 手当 */}
                                                 <section>
-                                                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">4</span> 本人の希望</h3>
-                                                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-4">
-                                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-white border border-slate-200 rounded-md">
-                                                            <span className="text-slate-700 font-medium mb-2 sm:mb-0 text-sm">保健師への相談を希望しますか？</span>
-                                                            <div className="flex gap-4">
-                                                                <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="q_request_ohp" value="yes" checked={formData.q_request_ohp === 'yes'} onChange={handleInputChange} disabled={!canEdit0} className="w-4 h-4 text-blue-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">はい</span></label>
-                                                                <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="q_request_ohp" value="no" checked={formData.q_request_ohp === 'no'} onChange={handleInputChange} disabled={!canEdit0} className="w-4 h-4 text-blue-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">いいえ</span></label>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between p-3 bg-white border border-slate-200 rounded-md">
-                                                            <span className="text-slate-700 font-medium mb-2 sm:mb-0 text-sm">職場へ配慮してほしいことはありますか？</span>
-                                                            <div className="flex gap-4">
-                                                                <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="q_request_care" value="yes" checked={formData.q_request_care === 'yes'} onChange={handleInputChange} disabled={!canEdit0} className="w-4 h-4 text-blue-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">はい</span></label>
-                                                                <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="q_request_care" value="no" checked={formData.q_request_care === 'no'} onChange={handleInputChange} disabled={!canEdit0} className="w-4 h-4 text-blue-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">いいえ</span></label>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </section>
-
-                                                <section>
-                                                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">5</span> 傷病手当の申請準備</h3>
+                                                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">4</span> 傷病手当の申請準備</h3>
                                                     <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
                                                         <div className="flex gap-4 items-start">
                                                             <AlertTriangle className="w-6 h-6 text-blue-600 flex-shrink-0 mt-1" />
@@ -775,6 +876,7 @@
                                                     </div>
                                                 </section>
 
+                                                {/* 5. 同意 */}
                                                 <div className="mt-8 p-4 bg-orange-50 border border-orange-200 rounded-lg">
                                                     <label className="flex items-start gap-3 cursor-pointer">
                                                         <input type="checkbox" name="consent_privacy" checked={formData.consent_privacy || false} onChange={handleCheckboxChange} disabled={!canEdit0} className="mt-1 w-5 h-5 text-blue-600 rounded border-slate-300 disabled:opacity-50"/>
@@ -808,28 +910,79 @@
                                                 <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 mb-6"><p className="text-sm text-indigo-900 font-medium">本人の報告内容を確認し、職場環境の提供と職制としての評価を入力してください。この入力結果をもとにシステムが自動判定を行います。</p></div>
                                                 
                                                 <section className="border border-slate-200 rounded-lg p-6 bg-slate-50 mb-6">
-                                                    <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Info className="w-5 h-5 text-indigo-500"/> 当該従業員の業務内容・負荷状況の共有</h3>
-                                                    <p className="text-xs text-slate-500 mb-4">産業医が復帰可否を判定するための重要な判断材料となります。現在の業務負荷について回答してください。</p>
-                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                        <div><label className="block text-sm font-medium text-slate-700 mb-1">身体的負荷 (立ち仕事、力仕事など)</label><select name="job_physical_load" value={formData.job_physical_load || ''} onChange={handleInputChange} disabled={!canEdit1} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500"><option value="">選択してください</option><option value="high">高い</option><option value="medium">中程度</option><option value="low">低い (デスクワーク中心)</option></select></div>
-                                                        <div><label className="block text-sm font-medium text-slate-700 mb-1">精神的負荷 (対人折衝、納期プレッシャー等)</label><select name="job_mental_load" value={formData.job_mental_load || ''} onChange={handleInputChange} disabled={!canEdit1} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500"><option value="">選択してください</option><option value="high">高い</option><option value="medium">中程度</option><option value="low">低い</option></select></div>
-                                                        <div><label className="block text-sm font-medium text-slate-700 mb-1">恒常的な残業・休日出勤の有無</label><select name="job_overtime" value={formData.job_overtime || ''} onChange={handleInputChange} disabled={!canEdit1} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500"><option value="">選択してください</option><option value="yes">あり</option><option value="no">なし</option></select></div>
-                                                        <div><label className="block text-sm font-medium text-slate-700 mb-1">出張・運転業務の有無</label><select name="job_businesstrip" value={formData.job_businesstrip || ''} onChange={handleInputChange} disabled={!canEdit1} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500"><option value="">選択してください</option><option value="yes">あり</option><option value="no">なし</option></select></div>
-                                                    </div>
-                                                </section>
+                                                    <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Briefcase className="w-5 h-5 text-indigo-500"/> 職制評価アンケート</h3>
+                                                    
+                                                    <div className="space-y-8">
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">0. 基本確認</h4>
+                                                            {renderQ('mgr_q0_1', 'Q0-1. 本人の復職予定先はどの勤務形態ですか', ['デスクワーク（日勤）', '現場勤務（昼専）', '交替勤務', 'その他'], !canEdit1, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q0-2. 復職後に予定している業務内容を記入してください</label>
+                                                            {renderText('mgr_q0_2', '業務の詳細', !canEdit1, formData, handleInputChange)}
+                                                            {renderQ('mgr_q0_3', 'Q0-3. 復職直後から通常業務を予定していますか', ['通常業務を予定', '一部配慮した業務を予定', '段階的復帰を予定', '未定'], !canEdit1, formData, handleInputChange)}
+                                                        </div>
 
-                                                {[
-                                                    { name: 'mgr_safety_concern', label: '業務上の安全面や受け入れ体制に不安がありますか？' },
-                                                    { name: 'mgr_need_care', label: '配置や業務内容の配慮・調整が必要だと感じますか？' }
-                                                ].map(q => (
-                                                    <div key={q.name} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white border border-slate-200 rounded-lg shadow-sm">
-                                                        <span className="text-slate-700 font-bold mb-3 sm:mb-0">{q.label}</span>
-                                                        <div className="flex gap-4 bg-slate-50 p-1.5 rounded-md border border-slate-200">
-                                                            <label className="flex items-center gap-2 cursor-pointer px-3 py-1"><input type="radio" name={q.name} value="yes" checked={formData[q.name] === 'yes'} onChange={handleInputChange} disabled={!canEdit1} className="w-4 h-4 text-indigo-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">はい</span></label>
-                                                            <label className="flex items-center gap-2 cursor-pointer px-3 py-1"><input type="radio" name={q.name} value="no" checked={formData[q.name] === 'no'} onChange={handleInputChange} disabled={!canEdit1} className="w-4 h-4 text-indigo-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">いいえ</span></label>
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">1. 勤務継続に関する評価</h4>
+                                                            {mgrQuestions.q1.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
+                                                        </div>
+
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">2. 安全就業に関する評価</h4>
+                                                            {mgrQuestions.q2.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
+                                                            {formData.mgr_q2_2 === '2' && (
+                                                                <div className="mb-4 pl-4">
+                                                                    <label className="block text-xs font-bold text-slate-700 mb-1">該当する作業の詳細</label>
+                                                                    {renderText('mgr_q2_2_detail', '機械操作、高所作業など', !canEdit1, formData, handleInputChange)}
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">3. 勤務形態・配慮に関する評価</h4>
+                                                            {mgrQuestions.q3.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
+                                                        </div>
+
+                                                        {formData.mgr_q0_1 === '1' && (
+                                                            <div>
+                                                                <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">4-A. 業務遂行能力 (デスクワーク)</h4>
+                                                                {mgrQuestions.q4a.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
+                                                            </div>
+                                                        )}
+                                                        {formData.mgr_q0_1 === '2' && (
+                                                            <div>
+                                                                <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">4-B. 業務遂行能力 (現場勤務)</h4>
+                                                                {mgrQuestions.q4b.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
+                                                            </div>
+                                                        )}
+                                                        {formData.mgr_q0_1 === '3' && (
+                                                            <div>
+                                                                <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">4-C. 業務遂行能力 (交替勤務)</h4>
+                                                                {mgrQuestions.q4c.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
+                                                            </div>
+                                                        )}
+
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">5. 職場受入れ・フォロー体制</h4>
+                                                            {mgrQuestions.q5.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
+                                                            {formData.mgr_q5_4 === '2' && (
+                                                                <div className="mb-4 pl-4">
+                                                                    <label className="block text-xs font-bold text-slate-700 mb-1">懸念していることの詳細</label>
+                                                                    {renderText('mgr_q5_4_detail', '', !canEdit1, formData, handleInputChange)}
+                                                                </div>
+                                                            )}
+                                                        </div>
+
+                                                        <div>
+                                                            <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">6. 職制からの自由記載</h4>
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-1. 復職後に予定している配慮内容</label>
+                                                            {renderText('mgr_q6_1', '', !canEdit1, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-2. 安全面・業務面で気になる点</label>
+                                                            {renderText('mgr_q6_2', '', !canEdit1, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-3. 本人の復職について、職場として確認しておきたいこと</label>
+                                                            {renderText('mgr_q6_3', '', !canEdit1, formData, handleInputChange)}
                                                         </div>
                                                     </div>
-                                                ))}
+                                                </section>
 
                                                 {canEdit1 && (
                                                     <div className="flex justify-center mt-8">
@@ -861,9 +1014,11 @@
                                                             <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-slate-200 p-6 rounded-t-xl text-center relative overflow-hidden">
                                                                 <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-4">
                                                                     <div className="text-left">
-                                                                        <p className="text-indigo-600 font-bold mb-1 text-sm tracking-wider">SYSTEM RESULT</p>
-                                                                        <h3 className="text-2xl font-black text-slate-800">総合リスクスコア: <span className="text-4xl text-indigo-700 ml-2">{score}</span> <span className="text-lg text-slate-500">pt</span></h3>
-                                                                        <p className="text-xs text-slate-500 mt-2">※数値が高いほど、安全配慮や業務への影響リスクが高く、より上位の専門職の介入が推奨されます。</p>
+                                                                        <p className="text-indigo-600 font-bold mb-1 text-sm tracking-wider">SYSTEM RESULT: FORCED FLAG TRIAGE</p>
+                                                                        <h3 className="text-2xl font-black text-slate-800">最高リスク判定: 
+                                                                            <span className={`text-4xl ml-2 ${level === 3 ? 'text-red-600' : level === 2 ? 'text-orange-500' : level === 1 ? 'text-yellow-600' : 'text-green-600'}`}>Level {level}</span>
+                                                                        </h3>
+                                                                        <p className="text-xs text-slate-500 mt-2">※いずれかの設問でリスク要素（フラグ）が検知された場合、強制的に安全な上位レベルに引き上げられます。</p>
                                                                     </div>
                                                                     <div className="text-right flex flex-col items-center">
                                                                         <span className={`inline-block px-4 py-2 rounded-lg font-black text-xl shadow-sm border-2 ${level === 3 ? 'bg-red-50 text-red-600 border-red-200' : level === 2 ? 'bg-orange-50 text-orange-600 border-orange-200' : level === 1 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-600 border-green-200'}`}>
@@ -872,21 +1027,21 @@
                                                                     </div>
                                                                 </div>
                                                                 <div className="w-full bg-slate-200 h-2 mt-6 rounded-full overflow-hidden flex">
-                                                                    <div className={`h-full ${score > 0 ? 'bg-green-400' : ''}`} style={{width: '13%'}}></div><div className={`h-full ${score >= 3 ? 'bg-yellow-400' : ''}`} style={{width: '33%'}}></div><div className={`h-full ${score >= 8 ? 'bg-orange-400' : ''}`} style={{width: '46%'}}></div><div className={`h-full ${score >= 15 ? 'bg-red-500' : ''}`} style={{width: '8%'}}></div>
+                                                                    <div className={`h-full ${score > 0 ? 'bg-green-400' : ''}`} style={{width: '13%'}}></div><div className={`h-full ${score >= 5 ? 'bg-yellow-400' : ''}`} style={{width: '33%'}}></div><div className={`h-full ${score >= 10 ? 'bg-orange-400' : ''}`} style={{width: '46%'}}></div><div className={`h-full ${score >= 15 ? 'bg-red-500' : ''}`} style={{width: '8%'}}></div>
                                                                 </div>
-                                                                <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-bold"><span>Lv0: 0-2</span><span className="ml-12">Lv1: 3-7</span><span className="ml-auto mr-12">Lv2: 8-14</span><span>Lv3: 15-</span></div>
+                                                                <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-bold"><span>Lv0</span><span className="ml-12">Lv1</span><span className="ml-auto mr-12">Lv2</span><span>Lv3</span></div>
                                                             </div>
                                                             <div className="bg-slate-50 border border-slate-200 border-t-0 rounded-b-xl p-6">
-                                                                <h4 className="font-bold text-slate-700 mb-3 text-sm flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-slate-500"/> 加点理由の内訳</h4>
+                                                                <h4 className="font-bold text-slate-700 mb-3 text-sm flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-slate-500"/> 検知された強制フラグの内訳</h4>
                                                                 {reasons.length > 0 ? (
                                                                     <ul className="space-y-2">
                                                                         {reasons.map((r, idx) => (
-                                                                            <li key={idx} className={`flex items-start gap-2 text-sm font-medium p-2 rounded ${r.includes('認識ズレ') ? 'bg-red-100 text-red-800 border border-red-200' : 'text-slate-700'}`}>
-                                                                                {r.includes('認識ズレ') ? <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0"/> : <Check className="w-4 h-4 text-slate-400 mt-0.5 flex-shrink-0"/>} {r}
+                                                                            <li key={idx} className={`flex items-start gap-2 text-sm font-bold p-2 rounded ${r.includes('Lv3') ? 'bg-red-100 text-red-800 border border-red-200' : 'bg-orange-50 text-orange-800 border border-orange-200'}`}>
+                                                                                <AlertTriangle className={`w-4 h-4 mt-0.5 flex-shrink-0 ${r.includes('Lv3') ? 'text-red-600' : 'text-orange-500'}`}/> {r}
                                                                             </li>
                                                                         ))}
                                                                     </ul>
-                                                                ) : ( <p className="text-sm text-slate-500">特記すべきリスク要因はありません。</p> )}
+                                                                ) : ( <p className="text-sm text-slate-500 font-medium"><CheckCircle className="w-4 h-4 inline text-green-500 mr-1"/>特記すべきリスクフラグは検知されませんでした。</p> )}
                                                             </div>
                                                         </div>
                                                     );
@@ -921,13 +1076,12 @@
                                             <div className="text-center p-12 bg-slate-50 rounded-xl border border-slate-200"><Clock className="w-12 h-12 text-slate-300 mx-auto mb-4" /><h3 className="text-xl font-bold text-slate-700 mb-2">本人の療養・復帰準備中</h3><p className="text-slate-500">現在、対象者が療養状況の報告、および復帰に向けた準備を行っています。</p></div>
                                         ) : (
                                             <div className="space-y-12">
-                                                {/* Phase I: 療養専念期 */}
                                                 <section>
                                                     <h3 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2"><span className="w-2 h-6 bg-blue-500 rounded-full"></span>【Phase I】 療養状況報告 (本人入力)</h3>
                                                     <div className="border border-slate-200 rounded-lg p-6 bg-slate-50 mb-4">
                                                         <div className="space-y-4">
-                                                            <div><label className="block text-sm font-medium text-slate-700 mb-1">1. 最近の健康状態について（症状・体調面など）</label><textarea name="report_health" value={formData.report_health || ''} onChange={handleInputChange} disabled={!canEdit3} className="w-full p-3 border border-slate-300 rounded-md bg-white h-24 disabled:bg-slate-100 disabled:text-slate-500"></textarea></div>
-                                                            <div><label className="block text-sm font-medium text-slate-700 mb-1">2. 主治医の先生のコメント（症状回復の程度、職場復帰の見通しなど）</label><textarea name="report_doctor" value={formData.report_doctor || ''} onChange={handleInputChange} disabled={!canEdit3} className="w-full p-3 border border-slate-300 rounded-md bg-white h-24 disabled:bg-slate-100 disabled:text-slate-500"></textarea></div>
+                                                            <div><label className="block text-sm font-medium text-slate-700 mb-1">1. 最近の健康状態について（症状・体調面など）</label><textarea name="report_health" value={formData.report_health || ''} onChange={handleInputChange} disabled={!canEdit3} className="w-full p-3 border border-slate-300 rounded-md bg-white h-24 disabled:bg-slate-100 disabled:text-slate-500 outline-none focus:ring-2 focus:ring-blue-500"></textarea></div>
+                                                            <div><label className="block text-sm font-medium text-slate-700 mb-1">2. 主治医の先生のコメント（症状回復の程度、職場復帰の見通しなど）</label><textarea name="report_doctor" value={formData.report_doctor || ''} onChange={handleInputChange} disabled={!canEdit3} className="w-full p-3 border border-slate-300 rounded-md bg-white h-24 disabled:bg-slate-100 disabled:text-slate-500 outline-none focus:ring-2 focus:ring-blue-500"></textarea></div>
                                                             <div>
                                                                 <label className="block text-sm font-medium text-slate-700 mb-1">3. 復帰準備の開始希望</label>
                                                                 <div className="flex gap-4">
@@ -949,7 +1103,6 @@
                                                     </div>
                                                 </section>
 
-                                                {/* Phase II: 復帰準備期 */}
                                                 <section className="border-t-2 border-slate-100 pt-8 mt-8">
                                                     <h3 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2"><span className="w-2 h-6 bg-emerald-500 rounded-full"></span>【Phase II】 復帰準備・書類提出 (本人入力)</h3>
                                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
@@ -968,7 +1121,6 @@
                                                     </div>
                                                 </section>
 
-                                                {/* Phase II 後半: 上司・専門職入力 */}
                                                 <section className="border-t-2 border-slate-100 pt-8 mt-8 space-y-6">
                                                     <h3 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2"><span className="w-2 h-6 bg-yellow-500 rounded-full"></span>【Phase II 後半】 復帰直前の最終確認 (職制・専門職)</h3>
                                                     {currentRole === 'employee' ? (
@@ -1048,8 +1200,8 @@
                                             ))}
                                             
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-                                                <div><label className="block text-sm font-bold text-blue-800 mb-2 flex items-center gap-1"><User className="w-4 h-4"/>本人の気になっている点・相談</label><textarea name="emp_comment" value={formData.emp_comment || ''} onChange={handleInputChange} disabled={!canEditEmp4} className={`w-full p-3 border rounded-md h-32 ${canEditEmp4 ? 'bg-white border-blue-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500' : 'bg-slate-100 border-slate-200 text-slate-500'}`}></textarea></div>
-                                                <div><label className="block text-sm font-bold text-emerald-800 mb-2 flex items-center gap-1"><Briefcase className="w-4 h-4"/>職制の気になっている点・相談</label><textarea name="mgr_comment" value={formData.mgr_comment || ''} onChange={handleInputChange} disabled={!canEditMgr4} className={`w-full p-3 border rounded-md h-32 ${canEditMgr4 ? 'bg-white border-emerald-300 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500' : 'bg-slate-100 border-slate-200 text-slate-500'}`}></textarea></div>
+                                                <div><label className="block text-sm font-bold text-blue-800 mb-2 flex items-center gap-1"><User className="w-4 h-4"/>本人の気になっている点・相談</label><textarea name="emp_comment" value={formData.emp_comment || ''} onChange={handleInputChange} disabled={!canEditEmp4} className={`w-full p-3 border rounded-md h-32 ${canEditEmp4 ? 'bg-white border-blue-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none' : 'bg-slate-100 border-slate-200 text-slate-500'}`}></textarea></div>
+                                                <div><label className="block text-sm font-bold text-emerald-800 mb-2 flex items-center gap-1"><Briefcase className="w-4 h-4"/>職制の気になっている点・相談</label><textarea name="mgr_comment" value={formData.mgr_comment || ''} onChange={handleInputChange} disabled={!canEditMgr4} className={`w-full p-3 border rounded-md h-32 ${canEditMgr4 ? 'bg-white border-emerald-300 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none' : 'bg-slate-100 border-slate-200 text-slate-500'}`}></textarea></div>
                                             </div>
 
                                             {actualPhase === 4 && (canEdit('employee') || canEdit('manager') || canEdit('ohp') || isAdmin) && (
@@ -1064,7 +1216,6 @@
                                     </div>
                                 )}
 
-                                {}
                                 {actualPhase === 5 && currentPhase === 5 && (
                                     <div className="bg-white p-12 rounded-xl shadow-sm border border-slate-200 text-center animate-fade-in-up">
                                         <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100 mb-6"><CheckCircle className="w-10 h-10 text-green-600" /></div>
@@ -1074,6 +1225,7 @@
                                     </div>
                                 )}
 
+                                {}
                                 {(isAdmin || currentRole === 'ohp') && (
                                     <div className="mt-8 bg-amber-50 rounded-xl p-6 shadow-sm border border-amber-200 border-l-4 border-l-amber-500 animate-fade-in-up">
                                         <h3 className="text-amber-900 font-bold mb-2 flex items-center gap-2"><Lock className="w-5 h-5 text-amber-600" /> 専門職専用 対応履歴 / 面談メモ（非公開）</h3>
