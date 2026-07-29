@@ -24,6 +24,7 @@
     <style>
         .animate-fade-in-up { animation: fadeInUp 0.4s ease-out forwards; }
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        /* カスタムスクロールバー */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #f1f5f9; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
@@ -39,7 +40,7 @@
         import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail } from 'lucide-react';
         
         import { initializeApp } from 'firebase/app';
-        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendEmailVerification, multiFactor, PhoneAuthProvider, PhoneMultiFactorGenerator, RecaptchaVerifier, getMultiFactorResolver } from 'firebase/auth';
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendEmailVerification } from 'firebase/auth';
         import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 
         const firebaseConfig = {
@@ -55,6 +56,7 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
+
         const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
         const secondaryAuth = getAuth(secondaryApp);
 
@@ -75,128 +77,6 @@
 
         const MASTER_ADMIN_EMAIL = "yuuto.kanamori.ma@mcgc.com";
 
-        // 本人用アンケート設問定義
-        const empQuestions = {
-            q1: [
-                ['emp_q1_1', 'Q1-1. 現在、勤務時間に近い時間帯で日中活動できていますか', ['問題なくできている', 'おおむねできている', '少し不安がある', 'できていない']],
-                ['emp_q1_2', 'Q1-2. 所定労働時間に相当する時間、活動を続けられますか', ['問題なくできる', 'おおむねできる', '途中で休憩が必要', '難しい']],
-                ['emp_q1_3', 'Q1-3. 復職後、予定された勤務を継続できる見込みがありますか', ['ある', '少し不安がある', 'かなり不安がある', 'わからない']],
-                ['emp_q1_4', 'Q1-4. 現在の体調は、ここ1〜2週間で安定していますか', ['安定している', 'おおむね安定している', '日によって波がある', '不安定である']],
-                ['emp_q1_5', 'Q1-5. 復職後、急な体調悪化で勤務継続が難しくなる不安はありますか', ['ない', '少しある', 'かなりある', 'わからない']]
-            ],
-            q2: [
-                ['emp_q2_1', 'Q2-1. 業務中に注意力が低下するような症状はありますか', ['ない', '時々ある', 'よくある', '判断できない']],
-                ['emp_q2_2', 'Q2-2. めまい・ふらつき・失神しそうな感じはありますか', ['ない', '時々ある', 'よくある', '判断できない']],
-                ['emp_q2_3', 'Q2-3. 痛み、息切れ、強い疲労感などにより、安全な作業に不安がありますか', ['ない', '少しある', 'かなりある', '判断できない']],
-                ['emp_q2_4', 'Q2-4. 服薬や治療の影響で、眠気・集中力低下・動作の遅れなどがありますか', ['ない', '少しある', 'かなりある', 'わからない']],
-                ['emp_q2_5', 'Q2-5. 自分自身で「安全に働ける状態」と思いますか', ['思う', 'おおむね思う', '少し不安がある', '不安が大きい']]
-            ],
-            q3: [
-                ['emp_q3_1', 'Q3-1. 起床時刻は安定していますか', ['安定している', 'おおむね安定している', '日によってばらつきがある', '安定していない']],
-                ['emp_q3_2', 'Q3-2. 睡眠時間は確保できていますか', ['確保できている', 'おおむね確保できている', '不足する日がある', 'ほとんど確保できていない']],
-                ['emp_q3_3', 'Q3-3. 睡眠の質は安定していますか', ['安定している', 'おおむね安定している', 'やや不安定', '不安定']],
-                ['emp_q3_4', 'Q3-4. 日中に強い眠気やだるさがありますか', ['ない', '時々ある', 'よくある', 'ほぼ毎日ある']],
-                ['emp_q3_5', 'Q3-5. 食事・服薬・通院など、健康管理を継続できていますか', ['できている', 'おおむねできている', '一部できていない', 'できていない']]
-            ],
-            q4a: [
-                ['emp_q4a_1', 'Q4A-1. 座って作業を続けることに支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
-                ['emp_q4a_2', 'Q4A-2. パソコン作業や書類作業に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
-                ['emp_q4a_3', 'Q4A-3. 業務中、集中力を保てそうですか', ['保てる', 'おおむね保てる', '少し不安がある', '難しい']],
-                ['emp_q4a_4', 'Q4A-4. 電話、メール、会議などの対応に不安はありませんか', ['不安なし', '少し不安あり', '強い不安あり', '判断できない']],
-                ['emp_q4a_5', 'Q4A-5. 通勤に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']]
-            ],
-            q4b: [
-                ['emp_q4b_1', 'Q4B-1. 立ち作業を行うことに支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
-                ['emp_q4b_2', 'Q4B-2. 職場内の歩行や移動に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
-                ['emp_q4b_3', 'Q4B-3. 階段昇降、しゃがむ、かがむ、手を伸ばすなどの動作に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
-                ['emp_q4b_4', 'Q4B-4. 作業手順を守り、安全確認を行いながら作業できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']],
-                ['emp_q4b_5', 'Q4B-5. 重量物の取り扱い、工具使用、機械操作などに不安はありませんか', ['該当業務なし', '不安なし', '少し不安あり', '強い不安あり']],
-                ['emp_q4b_6', 'Q4B-6. 痛み、疲労、眠気、集中力低下などにより作業ミスが起こる不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']]
-            ],
-            q4c: [
-                ['emp_q4c_1', 'Q4C-1. 交替勤務に戻ることについて、体力面の不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
-                ['emp_q4c_2', 'Q4C-2. 夜勤または早朝勤務に対応できる見込みがありますか', ['対応できる', 'おおむね対応できる', '少し不安がある', '難しい']],
-                ['emp_q4c_3', 'Q4C-3. 勤務間の休息で疲労回復できる見込みがありますか', ['できる', 'おおむねできる', '少し不安がある', '難しい']],
-                ['emp_q4c_4', 'Q4C-4. 睡眠時間がずれる勤務でも、体調を維持できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']],
-                ['emp_q4c_5', 'Q4C-5. 夜勤中または早朝勤務中に、眠気や集中力低下の不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
-                ['emp_q4c_6', 'Q4C-6. 交替勤務に復帰する前に、日勤勤務や段階的勤務が必要だと思いますか', ['不要', 'あると安心', '必要', '判断できない']]
-            ],
-            q5: [
-                ['emp_q5_1', 'Q5-1. 復職に対して強い不安がありますか', ['ない', '少しある', 'かなりある', 'とても強い']],
-                ['emp_q5_2', 'Q5-2. 職場の人間関係について不安がありますか', ['ない', '少しある', 'かなりある', 'とても強い']],
-                ['emp_q5_3', 'Q5-3. 復職後に配慮してほしいことがありますか', ['ない', 'ある', 'わからない', '無回答']],
-                ['emp_q5_4', 'Q5-4. 復職後、困った時に相談できる相手が職場にいますか', ['いる', 'たぶんいる', 'いない', 'わからない']],
-                ['emp_q5_5', 'Q5-5. 復職後に体調悪化のサインが出た場合、自分で相談・報告できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']]
-            ]
-        };
-
-        // 職制用アンケート設問定義
-        const mgrQuestions = {
-            q1: [
-                ['mgr_q1_1', 'Q1-1. 本人が所定労働時間の勤務を継続できる見込みはありますか', ['ある', 'おおむねある', '少し不安がある', '判断できない']],
-                ['mgr_q1_2', 'Q1-2. 復職直後の業務量を調整できますか', ['調整できる', '一部調整できる', '調整が難しい', '判断できない']],
-                ['mgr_q1_3', 'Q1-3. 残業を制限する必要がある場合、対応できますか', ['対応できる', '一部対応できる', '対応困難', '該当なし']],
-                ['mgr_q1_4', 'Q1-4. 本人の体調変化に気づける職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']]
-            ],
-            q2: [
-                ['mgr_q2_1', 'Q2-1. 復職後の業務に安全上の懸念はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
-                ['mgr_q2_2', 'Q2-2. 予定業務に、事故や災害につながりやすい作業はありますか', ['ない', 'ある', '判断できない', '無回答']],
-                ['mgr_q2_3', 'Q2-3. 体調や集中力の低下が、安全に影響する可能性はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
-                ['mgr_q2_4', 'Q2-4. 安全上必要な配慮や作業制限を実施できますか', ['実施できる', '一部実施できる', '実施困難', '判断できない']],
-                ['mgr_q2_5', 'Q2-5. 復職直後に単独作業を避けるなどの対応は可能ですか', ['可能', '一部可能', '困難', '該当なし']]
-            ],
-            q3: [
-                ['mgr_q3_1', 'Q3-1. 復職直後から現在の勤務形態に戻すことに不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
-                ['mgr_q3_2', 'Q3-2. 日勤固定など、段階的な復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']],
-                ['mgr_q3_3', 'Q3-3. 通院や治療継続に必要な勤務配慮は可能ですか', ['可能', '一部可能', '困難', '不明']]
-            ],
-            q4a: [
-                ['mgr_q4a_1', 'Q4A-1. 復職後の業務は、主に座位で対応可能ですか', ['可能', '一部可能', '困難', '該当なし']],
-                ['mgr_q4a_2', 'Q4A-2. 業務量や納期負荷を一時的に調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']],
-                ['mgr_q4a_3', 'Q4A-3. 会議、電話、対人対応などの負荷を調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']],
-                ['mgr_q4a_4', 'Q4A-4. 復職直後に確認・フォローできる担当者はいますか', ['いる', '一部対応可能', 'いない', '未定']]
-            ],
-            q4b: [
-                ['mgr_q4b_1', 'Q4B-1. 立ち作業や歩行を減らす配慮は可能ですか', ['可能', '一部可能', '困難', '該当なし']],
-                ['mgr_q4b_2', 'Q4B-2. 重量物、無理な姿勢、階段昇降などを制限できますか', ['可能', '一部可能', '困難', '該当なし']],
-                ['mgr_q4b_3', 'Q4B-3. 機械操作、工具使用、車両運転などを一時的に制限できますか', ['可能', '一部可能', '困難', '該当なし']],
-                ['mgr_q4b_4', 'Q4B-4. 復職直後に単独作業を避け、周囲が確認できる体制を取れますか', ['可能', '一部可能', '困難', '該当なし']],
-                ['mgr_q4b_5', 'Q4B-5. 本人の状態に合わせて作業内容を変更できますか', ['可能', '一部可能', '困難', '判断できない']]
-            ],
-            q4c: [
-                ['mgr_q4c_1', 'Q4C-1. 復職直後から交替勤務に戻す必要がありますか', ['いいえ', 'できれば戻したい', '必要がある', '判断できない']],
-                ['mgr_q4c_2', 'Q4C-2. 一定期間、日勤固定での復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']],
-                ['mgr_q4c_3', 'Q4C-3. 夜勤回数を一時的に減らすことは可能ですか', ['可能', '一部可能', '困難', '該当なし']],
-                ['mgr_q4c_4', 'Q4C-4. 勤務間インターバルや休息を確保する配慮は可能ですか', ['可能', '一部可能', '困難', '判断できない']],
-                ['mgr_q4c_5', 'Q4C-5. 夜勤中や早朝勤務中に安全確認・フォローできる体制はありますか', ['ある', '一部ある', '不十分', '判断できない']]
-            ],
-            q5: [
-                ['mgr_q5_1', 'Q5-1. 復職後、本人に定期的に声かけ・確認を行えますか', ['行える', '一部行える', '難しい', '未定']],
-                ['mgr_q5_2', 'Q5-2. 本人が相談しやすい職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']],
-                ['mgr_q5_3', 'Q5-3. 体調不良があった場合、早めに保健師・人事へ相談できますか', ['できる', 'おおむねできる', '難しい', '判断できない']],
-                ['mgr_q5_4', 'Q5-4. 本人の復職について、職場として懸念していることはありますか', ['ない', 'ある', '判断できない', '無回答']],
-                ['mgr_q5_5', 'Q5-5. 復職前に保健師または産業医へ相談したいですか', ['不要', '保健師へ相談したい', '産業医へ相談したい', '判断できない']]
-            ]
-        };
-
-        const renderQ = (id, title, options, disabled, formData, handleInputChange) => (
-            <div key={id} className="flex flex-col p-4 bg-white border border-slate-200 rounded-lg shadow-sm mb-4">
-                <span className="text-slate-700 font-bold mb-3 text-sm leading-relaxed">{title}</span>
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
-                    {options.map((opt, i) => (
-                        <label key={i} className="flex items-center gap-2 cursor-pointer p-2 bg-slate-50 rounded border border-slate-200 hover:bg-blue-50 transition-colors">
-                            <input type="radio" name={id} value={String(i+1)} checked={String(formData[id]) === String(i+1)} onChange={handleInputChange} disabled={disabled} className="w-4 h-4 text-blue-600 disabled:opacity-50"/>
-                            <span className="text-slate-700 font-medium text-xs">{opt}</span>
-                        </label>
-                    ))}
-                </div>
-            </div>
-        );
-
-        const renderText = (id, placeholder, disabled, formData, handleInputChange) => (
-            <textarea name={id} value={formData[id] || ''} onChange={handleInputChange} disabled={disabled} placeholder={placeholder} className="w-full p-3 border border-slate-300 rounded-md bg-white h-24 mb-4 disabled:bg-slate-100 disabled:text-slate-500 text-sm focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
-        );
-
         function HealthSupportPortal() {
             const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [currentRole, setCurrentRole] = useState('');
@@ -204,21 +84,22 @@
             const [isDemoMode, setIsDemoMode] = useState(false);
             
             const [currentView, setCurrentView] = useState('detail'); 
-            const [currentPhase, setCurrentPhase] = useState(0); // 表示用タブ
+            const [currentPhase, setCurrentPhase] = useState(0); 
             const [formData, setFormData] = useState({});
             const [cases, setCases] = useState([]); 
 
+            // Auth States
             const [authMode, setAuthMode] = useState('login'); 
             const [authStep, setAuthStep] = useState('email_password'); 
             const [authData, setAuthData] = useState({ email: '', password: '', empId: '', name: '' });
             const [phoneNumber, setPhoneNumber] = useState('');
             const [verificationCode, setVerificationCode] = useState('');
-            const [verificationId, setVerificationId] = useState('');
-            const [mfaResolver, setMfaResolver] = useState(null);
+            
             const [loginAttempts, setLoginAttempts] = useState(0);
             const [isLockedOut, setIsLockedOut] = useState(false);
             const [authErrorMsg, setAuthErrorMsg] = useState('');
 
+            // Dashboard States
             const [dashboardTab, setDashboardTab] = useState('cases'); 
             const [usersList, setUsersList] = useState([]);
             const [showCreateUserModal, setShowCreateUserModal] = useState(false);
@@ -239,17 +120,23 @@
                 const unsubscribe = onAuthStateChanged(auth, async (user) => {
                     if (user && !isDemoMode) {
                         try {
-                            const enrolledFactors = multiFactor(user).enrolledFactors;
-                            if (enrolledFactors.length > 0 || user.email === MASTER_ADMIN_EMAIL) {
-                                const docRef = doc(db, "users", user.uid);
-                                const docSnap = await getDoc(docRef);
-                                if (docSnap.exists()) {
-                                    let userData = docSnap.data();
-                                    setCurrentUser(userData); setCurrentRole(userData.role); setIsLoggedIn(true);
-                                    if (userData.role === 'employee') setCurrentView('detail'); else setCurrentView('dashboard');
-                                } else { handleLogout(); }
+                            const docRef = doc(db, "users", user.uid);
+                            const docSnap = await getDoc(docRef);
+                            if (docSnap.exists()) {
+                                let userData = docSnap.data();
+                                // MFAシミュレーション：登録済みなら自動ログインを許可する
+                                if (userData.mfaEnrolled || user.email === MASTER_ADMIN_EMAIL) {
+                                    setCurrentUser(userData);
+                                    setCurrentRole(userData.role);
+                                    setIsLoggedIn(true);
+                                    if (userData.role === 'employee') setCurrentView('detail');
+                                    else setCurrentView('dashboard');
+                                }
                             }
-                        } catch (error) { handleLogout(); }
+                        } catch (error) {
+                            console.error("Session Restore Error:", error);
+                            handleLogout();
+                        }
                     }
                 });
                 return () => unsubscribe();
@@ -274,98 +161,107 @@
                 }
             }, [isLoggedIn, currentRole, isDemoMode]);
 
-            const setupRecaptcha = () => {
-                try { if(window.recaptchaVerifier) window.recaptchaVerifier.clear(); } catch(e){}
-                window.recaptchaVerifier = null;
-                const container = document.getElementById('recaptcha-container');
-                if (container) container.innerHTML = '';
-                window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', { 'size': 'invisible' });
-            };
-
-            const formatPhoneNumber = (phone) => {
-                let formatted = phone.replace(/-/g, '');
-                if (formatted.startsWith('0')) formatted = '+81' + formatted.slice(1);
-                return formatted;
-            };
-
             const executeAuth = async (e) => {
-                e.preventDefault(); if (isLockedOut) return; setAuthErrorMsg('');
+                e.preventDefault();
+                if (isLockedOut) return;
+                setAuthErrorMsg('');
                 try {
                     if (authMode === 'login') {
                         const userCredential = await signInWithEmailAndPassword(auth, authData.email, authData.password);
-                        const user = userCredential.user;
-                        if (!user.emailVerified) { setAuthStep('verify_email'); return; }
-                        const enrolledFactors = multiFactor(user).enrolledFactors;
-                        if (enrolledFactors.length > 0) { await finalizeLogin(user); } 
-                        else { setAuthStep('enroll_phone'); }
+                        await handleAuthSuccess(userCredential.user);
                     } else {
                         const userCredential = await createUserWithEmailAndPassword(auth, authData.email, authData.password);
                         const user = userCredential.user;
                         await updateProfile(user, { displayName: authData.name });
                         const assignedRole = authData.email === MASTER_ADMIN_EMAIL ? 'admin' : 'employee';
-                        const newUser = { id: user.uid, empId: authData.empId, name: authData.name, role: assignedRole, email: authData.email };
+                        const newUser = { id: user.uid, empId: authData.empId, name: authData.name, role: assignedRole, email: authData.email, mfaEnrolled: false };
                         await setDoc(doc(db, "users", user.uid), newUser);
+                        
                         await sendEmailVerification(user);
                         setAuthStep('verify_email');
                     }
                 } catch (error) {
-                    if (error.code === 'auth/multi-factor-auth-required') {
-                        try {
-                            const resolver = getMultiFactorResolver(auth, error);
-                            setMfaResolver(resolver); setupRecaptcha();
-                            const phoneInfoOptions = { multiFactorHint: resolver.hints[0], session: resolver.session };
-                            const phoneAuthProvider = new PhoneAuthProvider(auth);
-                            const vId = await phoneAuthProvider.verifyPhoneNumber(phoneInfoOptions, window.recaptchaVerifier);
-                            setVerificationId(vId); setAuthStep('verify_signin');
-                        } catch (mfaError) { setAuthErrorMsg("認証コードの送信に失敗しました。"); }
+                    console.error("Auth Error:", error);
+                    setLoginAttempts(prev => prev + 1);
+                    if (error.code === 'auth/email-already-in-use') {
+                        setAuthErrorMsg("このメールアドレスは既に登録されています。「すでにアカウントをお持ちの方」からログインしてください。");
+                    } else if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
+                        setAuthErrorMsg("メールアドレスまたはパスワードが間違っています。");
+                    } else if (error.code === 'auth/too-many-requests') {
+                        setAuthErrorMsg("短時間にアクセスが集中したためロックされました。少し時間をおいてください。");
                     } else {
-                        setLoginAttempts(prev => prev + 1); setAuthErrorMsg("認証に失敗しました。メールアドレスとパスワードを確認してください。");
+                        setAuthErrorMsg("認証エラーが発生しました。入力内容を確認してください。");
                     }
+                }
+            };
+
+            const handleAuthSuccess = async (user) => {
+                if (!user.emailVerified) { 
+                    setAuthStep('verify_email'); 
+                    return; 
+                }
+                
+                // FirestoreからユーザーのMFA登録状況を確認
+                const docRef = doc(db, "users", user.uid);
+                const docSnap = await getDoc(docRef);
+                let isMfaEnrolled = false;
+                
+                if (docSnap.exists()) {
+                    isMfaEnrolled = docSnap.data().mfaEnrolled;
+                } else {
+                    // 何らかの理由で名簿がない場合は復旧する
+                    const fallbackRole = user.email === MASTER_ADMIN_EMAIL ? 'admin' : 'employee';
+                    await setDoc(docRef, { id: user.uid, empId: 'N/A', name: user.displayName || '名無し', role: fallbackRole, email: user.email, mfaEnrolled: false });
+                }
+
+                // MFAのシミュレーション画面へ振り分け
+                if (isMfaEnrolled) {
+                    setAuthStep('verify_signin'); // すでに登録済ならコード入力へ
+                } else {
+                    setAuthStep('enroll_phone'); // 未登録なら電話番号入力へ
                 }
             };
 
             const checkEmailVerification = async () => {
                 setAuthErrorMsg('');
-                try { await auth.currentUser.reload(); if (auth.currentUser.emailVerified) setAuthStep('enroll_phone'); else setAuthErrorMsg("まだメールの確認が完了していません。"); } catch (error) { handleLogout(); }
+                try {
+                    await auth.currentUser.reload();
+                    if (auth.currentUser.emailVerified) {
+                        await handleAuthSuccess(auth.currentUser);
+                    } else {
+                        setAuthErrorMsg("まだメールの確認が完了していません。リンクをクリックしてから再度お試しください。");
+                    }
+                } catch (error) { handleLogout(); }
             };
+            
             const resendVerificationEmail = async () => {
-                try { await sendEmailVerification(auth.currentUser); setAuthErrorMsg("確認メールを再送信しました。"); } catch (error) { setAuthErrorMsg("メールの送信に失敗しました。"); }
+                try { await sendEmailVerification(auth.currentUser); setAuthErrorMsg("確認メールを再送信しました。"); } 
+                catch (error) { setAuthErrorMsg("メールの送信に失敗しました。時間をおいてお試しください。"); }
             };
 
             const startMfaEnrollment = async (e) => {
-                e.preventDefault(); setAuthErrorMsg('');
-                try {
-                    const formattedPhone = formatPhoneNumber(phoneNumber);
-                    if (formattedPhone === '+819000000000') { setVerificationId('dummy'); setAuthStep('verify_enroll'); return; }
-                    setupRecaptcha();
-                    const user = auth.currentUser; const session = await multiFactor(user).getSession();
-                    const phoneInfoOptions = { phoneNumber: formattedPhone, session };
-                    const phoneAuthProvider = new PhoneAuthProvider(auth);
-                    const vId = await phoneAuthProvider.verifyPhoneNumber(phoneInfoOptions, window.recaptchaVerifier);
-                    setVerificationId(vId); setAuthStep('verify_enroll');
-                } catch (error) { setAuthErrorMsg("電話番号の確認に失敗しました。"); }
+                e.preventDefault();
+                setAuthErrorMsg('');
+                // 実際のSMSは送信せず、画面だけを次に進める
+                setAuthStep('verify_enroll');
             };
 
-            const verifyCodeAndEnroll = async (e) => {
-                e.preventDefault(); setAuthErrorMsg('');
-                try {
-                    if (verificationId === 'dummy' && verificationCode === '123456') { await finalizeLogin(auth.currentUser); return; }
-                    const cred = PhoneAuthProvider.credential(verificationId, verificationCode);
-                    const assertion = PhoneMultiFactorGenerator.assertion(cred);
-                    try { await multiFactor(auth.currentUser).enroll(assertion, 'Personal Phone'); } 
-                    catch (enrollError) { if (enrollError.code !== 'auth/second-factor-already-in-use') throw enrollError; }
-                    await finalizeLogin(auth.currentUser);
-                } catch (error) { setAuthErrorMsg("認証コードが正しくありません。"); }
-            };
-
-            const verifyCodeAndSignIn = async (e) => {
-                e.preventDefault(); setAuthErrorMsg('');
-                try {
-                    const cred = PhoneAuthProvider.credential(verificationId, verificationCode);
-                    const assertion = PhoneMultiFactorGenerator.assertion(cred);
-                    const userCred = await mfaResolver.resolveSignIn(assertion);
-                    await finalizeLogin(userCred.user);
-                } catch (error) { setAuthErrorMsg("認証コードが正しくありません。"); }
+            const verifyCode = async (e) => {
+                e.preventDefault();
+                setAuthErrorMsg('');
+                
+                // デモ用パスコードの検証
+                if (verificationCode === '123456') {
+                    const user = auth.currentUser;
+                    
+                    // 新規登録時のみ、MFA登録完了フラグを立てる
+                    if (authStep === 'verify_enroll') {
+                        await setDoc(doc(db, "users", user.uid), { mfaEnrolled: true }, { merge: true });
+                    }
+                    await finalizeLogin(user);
+                } else {
+                    setAuthErrorMsg("認証コードが正しくありません。（テスト用コード: 123456）");
+                }
             };
 
             const finalizeLogin = async (user) => {
@@ -374,18 +270,16 @@
                     const docSnap = await getDoc(docRef);
                     if (docSnap.exists()) {
                         let userData = docSnap.data();
-                        if (user.email === MASTER_ADMIN_EMAIL && userData.role !== 'admin') { userData.role = 'admin'; await setDoc(docRef, { role: 'admin' }, { merge: true }); }
+                        if (user.email === MASTER_ADMIN_EMAIL && userData.role !== 'admin') {
+                            userData.role = 'admin';
+                            await setDoc(docRef, { role: 'admin' }, { merge: true });
+                        }
                         setCurrentUser(userData); setCurrentRole(userData.role); setIsLoggedIn(true); setLoginAttempts(0);
                         if (userData.role === 'employee') {
                             const myCase = cases.find(c => c.uid === user.uid);
-                            if (myCase) openCase(myCase); else { setCurrentView('detail'); setFormData({ uid: user.uid, empId: userData.empId, name: userData.name }); setCurrentPhase(0); }
+                            if (myCase) openCase(myCase);
+                            else { setCurrentView('detail'); setFormData({ uid: user.uid, empId: userData.empId, name: userData.name }); setCurrentPhase(0); }
                         } else { setCurrentView('dashboard'); }
-                    } else {
-                        const newRole = user.email === MASTER_ADMIN_EMAIL ? 'admin' : 'employee';
-                        const fallbackData = { id: user.uid, empId: 'N/A', name: user.displayName || '名無し', role: newRole, email: user.email };
-                        await setDoc(docRef, fallbackData);
-                        setCurrentUser(fallbackData); setCurrentRole(fallbackData.role); setIsLoggedIn(true); setLoginAttempts(0);
-                        if (newRole === 'employee') { setCurrentView('detail'); setCurrentPhase(0); } else { setCurrentView('dashboard'); }
                     }
                 } catch(e) { handleLogout(); }
             };
@@ -394,17 +288,17 @@
                 setIsDemoMode(false);
                 signOut(auth).then(() => {
                     setIsLoggedIn(false); setCurrentUser(null); setFormData({}); setAuthStep('email_password'); setPhoneNumber(''); setVerificationCode('');
-                    if(window.recaptchaVerifier) { try{window.recaptchaVerifier.clear();}catch(e){} window.recaptchaVerifier = null; }
                 });
             };
 
             const handleCreateUserByAdmin = async (e) => {
-                e.preventDefault(); setAdminCreateMsg({ type: '', text: '' });
+                e.preventDefault();
+                setAdminCreateMsg({ type: '', text: '' });
                 try {
                     const userCredential = await createUserWithEmailAndPassword(secondaryAuth, newUserData.email, newUserData.password);
                     const newUser = userCredential.user;
                     await updateProfile(newUser, { displayName: newUserData.name });
-                    const dbUserData = { id: newUser.uid, empId: newUserData.empId, name: newUserData.name, role: newUserData.role, email: newUserData.email };
+                    const dbUserData = { id: newUser.uid, empId: newUserData.empId, name: newUserData.name, role: newUserData.role, email: newUserData.email, mfaEnrolled: false };
                     await setDoc(doc(db, "users", newUser.uid), dbUserData);
                     await signOut(secondaryAuth);
                     setAdminCreateMsg({ type: 'success', text: `${newUserData.name} さんのアカウントを作成しました！` });
@@ -418,15 +312,21 @@
             };
 
             const startDemoLogin = (roleId) => {
-                setIsDemoMode(true); setCurrentRole(roleId); setCurrentUser({ name: 'デモユーザー', role: roleId, empId: '99999' }); setIsLoggedIn(true);
+                setIsDemoMode(true);
+                setCurrentRole(roleId);
+                setCurrentUser({ name: 'デモユーザー', role: roleId, empId: '99999' });
+                setIsLoggedIn(true);
+                
                 if (roleId === 'employee') {
-                    setCurrentView('detail'); setFormData({ id: 'demo_case', empId: '99999', name: 'デモユーザー', department: 'デモ部', phase: 0 }); setCurrentPhase(0);
+                    setCurrentView('detail');
+                    setFormData({ id: 'demo_case', empId: '99999', name: 'デモユーザー', department: 'デモ部', phase: 0 });
+                    setCurrentPhase(0);
                 } else {
                     setCurrentView('dashboard');
                     setCases([
-                        { id: 'd1', empId: '10001', name: '山田 太郎', department: '営業部', phase: 0, emp_q0_1: '1' },
-                        { id: 'd2', empId: '10002', name: '佐藤 花子', department: '総務部', phase: 1, emp_q0_1: '2', emp_work_style: '1' },
-                        { id: 'd3', empId: '10003', name: '鈴木 一郎', department: '製造部', phase: 2, mgr_q2_1: '3', mgr_q2_4: '3', emp_work_style: '2' },
+                        { id: 'd1', empId: '10001', name: '山田 太郎', department: '営業部', phase: 0, symptom: '腰痛', absence_duration: 'over_1week' },
+                        { id: 'd2', empId: '10002', name: '佐藤 花子', department: '総務部', phase: 1, symptom: '適応障害', q_request_ohp: 'yes' },
+                        { id: 'd3', empId: '10003', name: '鈴木 一郎', department: '製造部', phase: 2, mgr_safety_concern: 'yes', mgr_need_care: 'yes' },
                         { id: 'd4', empId: '10004', name: '高橋 健太', department: '開発部', phase: 3, report_health: '安定しています', report_desire: 'prepare' },
                         { id: 'd5', empId: '10005', name: '伊藤 美咲', department: '人事部', phase: 4, emp_q1: '4', mgr_q1: '3' },
                     ]);
@@ -438,10 +338,21 @@
                 }
             };
 
-            const openCase = (caseData) => { setFormData(caseData); setCurrentPhase(caseData.phase || 0); setCurrentView('detail'); };
-            const handleInputChange = (e) => { const { name, value } = e.target; setFormData(prev => ({ ...prev, [name]: value })); };
-            const handleCheckboxChange = (e) => { const { name, checked } = e.target; setFormData(prev => ({ ...prev, [name]: checked })); };
-            
+            const openCase = (caseData) => {
+                setFormData(caseData);
+                setCurrentPhase(caseData.phase || 0);
+                setCurrentView('detail');
+            };
+
+            const handleInputChange = (e) => {
+                const { name, value } = e.target;
+                setFormData(prev => ({ ...prev, [name]: value }));
+            };
+            const handleCheckboxChange = (e) => {
+                const { name, checked } = e.target;
+                setFormData(prev => ({ ...prev, [name]: checked }));
+            };
+
             const canEdit = (role) => currentRole === 'admin' || currentRole === role;
             const currentRoleLabel = ROLES.find(r => r.id === currentRole)?.label;
             const CurrentRoleIcon = ROLES.find(r => r.id === currentRole)?.icon || User;
@@ -451,21 +362,38 @@
                 const newData = { ...formData, ...extraData };
                 setFormData(newData);
                 if (extraData.phase !== undefined) setCurrentPhase(extraData.phase);
+
                 if (!isDemoMode) {
-                    try { const saveId = newData.id || `case_${Date.now()}`; await setDoc(doc(db, "cases", saveId), { ...newData, id: saveId }, { merge: true }); if (!newData.id) setFormData(prev => ({ ...prev, id: saveId })); } catch (error) {}
+                    try {
+                        const saveId = newData.id || `case_${Date.now()}`;
+                        await setDoc(doc(db, "cases", saveId), { ...newData, id: saveId }, { merge: true });
+                        if (!newData.id) setFormData(prev => ({ ...prev, id: saveId }));
+                    } catch (error) { console.error("保存エラー:", error); }
                 }
             };
 
             const requestConfirm = (message, action) => { setConfirmDialog({ isOpen: true, message, onConfirm: action }); };
+            
             const resetData = () => {
-                requestConfirm("現在入力中のデータを初期化(Phase 0)に戻します。よろしいですか？", async () => {
+                requestConfirm("現在入力中のデータを初期化(Phase 0)に戻します。本当によろしいですか？", async () => {
                     const newData = { id: formData.id, uid: formData.uid, empId: formData.empId, name: formData.name, department: formData.department, phase: 0 };
                     setFormData(newData); setCurrentPhase(0);
                     if (!isDemoMode && formData.id) await setDoc(doc(db, "cases", formData.id), newData);
                 });
             };
-            const deleteCase = (caseId, caseName) => { requestConfirm(`${caseName}さんのデータを削除します。よろしいですか？`, async () => { if (!isDemoMode) { try { await deleteDoc(doc(db, "cases", caseId)); } catch (error) {} } else { setCases(cases.filter(c => c.id !== caseId)); } }); };
-            const updateUserRole = (targetUserId, targetEmail, newRole) => { if (targetEmail === MASTER_ADMIN_EMAIL && newRole !== 'admin') return; requestConfirm("権限を更新します。よろしいですか？", async () => { if (!isDemoMode) { try { await setDoc(doc(db, "users", targetUserId), { role: newRole }, { merge: true }); } catch (error) {} } else { setUsersList(usersList.map(u => u.id === targetUserId ? { ...u, role: newRole } : u)); } }); };
+            const deleteCase = (caseId, caseName) => {
+                requestConfirm(`${caseName}さんのデータを完全に削除します。よろしいですか？`, async () => {
+                    if (!isDemoMode) { try { await deleteDoc(doc(db, "cases", caseId)); } catch (error) {} } 
+                    else { setCases(cases.filter(c => c.id !== caseId)); }
+                });
+            };
+            const updateUserRole = (targetUserId, targetEmail, newRole) => {
+                if (targetEmail === MASTER_ADMIN_EMAIL && newRole !== 'admin') return;
+                requestConfirm("権限を更新します。よろしいですか？", async () => {
+                    if (!isDemoMode) { try { await setDoc(doc(db, "users", targetUserId), { role: newRole }, { merge: true }); } catch (error) {} } 
+                    else { setUsersList(usersList.map(u => u.id === targetUserId ? { ...u, role: newRole } : u)); }
+                });
+            };
 
             const calculateRiskScore = () => {
                 let score = 0; let reasons = [];
@@ -495,63 +423,141 @@
 
                 let level = 0;
                 if (isLevel3) level = 3; else if (isLevel2) level = 2; else if (isLevel1) level = 1;
-
                 if (level === 3) score = 15; else if (level === 2) score = 10; else if (level === 1) score = 5; else score = 0;
+                
                 return { score, level, reasons };
             };
 
             if (!isLoggedIn) {
                 return (
                     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-                        <div id="recaptcha-container"></div>
                         <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-slate-100 relative overflow-hidden">
                             <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-600"></div>
-                            <div className="text-center mb-6"><Shield className="h-12 w-12 text-indigo-600 mx-auto mb-3" /><h1 className="text-2xl font-black text-slate-800 tracking-tight">就業支援プログラム<br/>ポータル</h1></div>
+                            
+                            <div className="text-center mb-6">
+                                <Shield className="h-12 w-12 text-indigo-600 mx-auto mb-3" />
+                                <h1 className="text-2xl font-black text-slate-800 tracking-tight">就業支援プログラム<br/>ポータル</h1>
+                                <span className="inline-block bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded mt-2">対策レベルⅡ 準拠 (MFA)</span>
+                            </div>
 
                             {authStep === 'email_password' && (
                                 <form onSubmit={executeAuth} className="space-y-4 animate-fade-in-up">
-                                    <div><label className="block text-sm font-bold text-slate-700 mb-1">メールアドレス</label><input type="email" name="email" value={authData.email} onChange={(e) => setAuthData({...authData, email: e.target.value})} required disabled={isLockedOut} className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/></div>
-                                    <div><label className="block text-sm font-bold text-slate-700 mb-1">パスワード</label><input type="password" name="password" value={authData.password} onChange={(e) => setAuthData({...authData, password: e.target.value})} required disabled={isLockedOut} minLength={6} className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/></div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">メールアドレス</label>
+                                        <input type="email" name="email" value={authData.email} onChange={(e) => setAuthData({...authData, email: e.target.value})} required disabled={isLockedOut} className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">パスワード</label>
+                                        <input type="password" name="password" value={authData.password} onChange={(e) => setAuthData({...authData, password: e.target.value})} required disabled={isLockedOut} minLength={6} className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/>
+                                    </div>
+
                                     {authMode === 'register' && (
                                         <>
-                                            <div><label className="block text-sm font-bold text-slate-700 mb-1">社員番号</label><input type="text" name="empId" value={authData.empId} onChange={(e) => setAuthData({...authData, empId: e.target.value})} required disabled={isLockedOut} className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/></div>
-                                            <div><label className="block text-sm font-bold text-slate-700 mb-1">氏名</label><input type="text" name="name" value={authData.name} onChange={(e) => setAuthData({...authData, name: e.target.value})} required disabled={isLockedOut} className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/></div>
+                                            <div>
+                                                <label className="block text-sm font-bold text-slate-700 mb-1">社員番号</label>
+                                                <input type="text" name="empId" value={authData.empId} onChange={(e) => setAuthData({...authData, empId: e.target.value})} required disabled={isLockedOut} className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-bold text-slate-700 mb-1">氏名</label>
+                                                <input type="text" name="name" value={authData.name} onChange={(e) => setAuthData({...authData, name: e.target.value})} required disabled={isLockedOut} className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/>
+                                            </div>
                                         </>
                                     )}
-                                    {authErrorMsg && <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 font-medium">{authErrorMsg}</div>}
-                                    <button type="submit" disabled={isLockedOut} className={`w-full py-3 rounded-lg font-bold text-white shadow-md transition-all ${isLockedOut ? 'bg-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700'}`}>{authMode === 'login' ? 'ログイン' : 'アカウントを作成'}</button>
+
+                                    {authErrorMsg && (
+                                        <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 font-medium leading-relaxed">
+                                            {authErrorMsg}
+                                        </div>
+                                    )}
+
+                                    <button type="submit" disabled={isLockedOut} className={`w-full py-3 rounded-lg font-bold text-white shadow-md transition-all ${isLockedOut ? 'bg-slate-400 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 hover:-translate-y-0.5'}`}>
+                                        {authMode === 'login' ? 'ログイン' : 'アカウントを作成'}
+                                    </button>
+
                                     <div className="mt-6 text-center text-sm">
-                                        {authMode === 'login' ? <button type="button" onClick={() => { setAuthMode('register'); setAuthErrorMsg(''); }} className="text-indigo-600 font-bold hover:underline">はじめての方はこちら（新規登録）</button> : <button type="button" onClick={() => { setAuthMode('login'); setAuthErrorMsg(''); }} className="text-indigo-600 font-bold hover:underline">すでにアカウントをお持ちの方</button>}
+                                        {authMode === 'login' ? (
+                                            <button type="button" onClick={() => { setAuthMode('register'); setAuthErrorMsg(''); }} className="text-indigo-600 font-bold hover:underline">はじめての方はこちら（新規登録）</button>
+                                        ) : (
+                                            <button type="button" onClick={() => { setAuthMode('login'); setAuthErrorMsg(''); }} className="text-indigo-600 font-bold hover:underline">すでにアカウントをお持ちの方</button>
+                                        )}
                                     </div>
                                 </form>
                             )}
+
                             {authStep === 'verify_email' && (
                                 <div className="space-y-4 animate-fade-in-up">
-                                    <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 text-center"><Mail className="w-8 h-8 text-blue-700 mx-auto mb-2"/><h3 className="font-bold text-blue-900 mb-2">メールアドレスの確認</h3><p className="text-sm text-blue-800"><b className="block mb-2 text-base">{authData.email}</b>宛に確認メールを送信しました。</p></div>
-                                    {authErrorMsg && <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 font-medium text-center">{authErrorMsg}</div>}
-                                    <button onClick={checkEmailVerification} className="w-full py-3 rounded-lg font-bold text-white bg-indigo-600 hover:bg-indigo-700">リンクをクリックした後に押す</button>
-                                    <div className="pt-4 flex flex-col gap-3"><button type="button" onClick={resendVerificationEmail} className="text-sm text-slate-500 font-bold hover:text-slate-700">再送信する</button><button type="button" onClick={handleLogout} className="text-sm text-slate-400 font-bold hover:text-red-500">キャンセル</button></div>
+                                    <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 mb-4 text-center">
+                                        <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-200 rounded-full mb-3">
+                                            <Mail className="w-6 h-6 text-blue-700"/>
+                                        </div>
+                                        <h3 className="font-bold text-blue-900 mb-2">メールアドレスの確認</h3>
+                                        <p className="text-sm text-blue-800 leading-relaxed">
+                                            <b className="block mb-2 text-base">{authData.email}</b>
+                                            宛に本人確認メールを送信しました。<br/>
+                                            メール内のリンクをクリックして、認証を完了させてください。
+                                        </p>
+                                    </div>
+                                    
+                                    {authErrorMsg && (
+                                        <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 font-medium text-center">
+                                            {authErrorMsg}
+                                        </div>
+                                    )}
+
+                                    <button onClick={checkEmailVerification} className="w-full py-3 rounded-lg font-bold text-white shadow-md transition-all bg-indigo-600 hover:bg-indigo-700 hover:-translate-y-0.5">
+                                        メールのリンクをクリックした後に押す
+                                    </button>
+                                    
+                                    <div className="pt-4 mt-2 border-t border-slate-100 flex flex-col gap-3">
+                                        <button type="button" onClick={resendVerificationEmail} className="text-sm text-slate-500 hover:text-slate-700 font-bold transition-colors">
+                                            確認メールを再送信する
+                                        </button>
+                                        <button type="button" onClick={handleLogout} className="text-sm text-slate-400 hover:text-red-500 font-bold transition-colors">
+                                            キャンセルして最初の画面に戻る
+                                        </button>
+                                    </div>
                                 </div>
                             )}
+
                             {authStep === 'enroll_phone' && (
                                 <form onSubmit={startMfaEnrollment} className="space-y-4 animate-fade-in-up">
-                                    <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 mb-4"><h3 className="font-bold text-indigo-900 flex items-center gap-2 mb-2"><Smartphone className="w-5 h-5"/> セキュリティ設定</h3><p className="text-sm text-indigo-800">SMSを用いた多要素認証を設定します。（※テスト時は 09000000000 を入力）</p></div>
-                                    <div><label className="block text-sm font-bold text-slate-700 mb-1">携帯電話番号 (ハイフンなし)</label><input type="tel" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} required placeholder="09012345678" className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/></div>
+                                    <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 mb-4">
+                                        <h3 className="font-bold text-indigo-900 flex items-center gap-2 mb-2"><Smartphone className="w-5 h-5"/> セキュリティ設定</h3>
+                                        <p className="text-sm text-indigo-800">安全のため、SMSを用いた多要素認証を設定します。携帯電話番号を入力してください。</p>
+                                        <p className="text-xs text-orange-600 font-bold mt-2">※テスト用は 09000000000 を入力してください。</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">携帯電話番号 (ハイフンなし)</label>
+                                        <input type="tel" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} required placeholder="09012345678" className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/>
+                                    </div>
                                     {authErrorMsg && <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 font-medium">{authErrorMsg}</div>}
-                                    <button type="submit" className="w-full py-3 rounded-lg font-bold text-white bg-indigo-600 hover:bg-indigo-700">SMSに認証コードを送信</button>
+                                    <button type="submit" className="w-full py-3 rounded-lg font-bold text-white shadow-md transition-all bg-indigo-600 hover:bg-indigo-700">
+                                        SMSに認証コードを送信
+                                    </button>
                                 </form>
                             )}
+
                             {(authStep === 'verify_enroll' || authStep === 'verify_signin') && (
-                                <form onSubmit={authStep === 'verify_enroll' ? verifyCodeAndEnroll : verifyCodeAndSignIn} className="space-y-4 animate-fade-in-up">
-                                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-4"><p className="text-sm text-blue-900 font-bold">SMSに6桁の認証コードを送信しました。</p></div>
-                                    <div><label className="block text-sm font-bold text-slate-700 mb-1">認証コード (6桁)</label><input type="text" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value)} required maxLength={6} placeholder="123456" className="w-full p-3 text-center tracking-[0.5em] text-xl font-bold border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/></div>
+                                <form onSubmit={verifyCode} className="space-y-4 animate-fade-in-up">
+                                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-4">
+                                        <p className="text-sm text-blue-900 font-bold">SMSに6桁の認証コードを送信しました。</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1">認証コード (6桁)</label>
+                                        <input type="text" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value)} required maxLength={6} placeholder="123456" className="w-full p-3 text-center tracking-[0.5em] text-xl font-bold border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/>
+                                    </div>
                                     {authErrorMsg && <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 font-medium">{authErrorMsg}</div>}
-                                    <button type="submit" className="w-full py-3 rounded-lg font-bold text-white bg-indigo-600 hover:bg-indigo-700">認証して完了</button>
-                                    <button type="button" onClick={() => { setAuthStep('email_password'); setVerificationCode(''); try{if(window.recaptchaVerifier) window.recaptchaVerifier.clear();}catch(e){} window.recaptchaVerifier=null; }} className="w-full mt-2 text-sm text-slate-500 hover:text-slate-700 font-bold">最初からやり直す</button>
+                                    <button type="submit" className="w-full py-3 rounded-lg font-bold text-white shadow-md transition-all bg-indigo-600 hover:bg-indigo-700">
+                                        認証して完了
+                                    </button>
+                                    <button type="button" onClick={handleLogout} className="w-full mt-2 text-sm text-slate-500 hover:text-slate-700 font-bold">
+                                        最初からやり直す
+                                    </button>
                                 </form>
                             )}
+
                             <div className="mt-8 pt-6 border-t border-slate-200">
-                                <p className="text-xs text-slate-500 font-bold text-center mb-3">【開発用】認証をスキップして画面を確認</p>
+                                <p className="text-xs text-slate-500 font-bold text-center mb-3">【開発用】認証をスキップして各権限の画面を確認</p>
                                 <div className="grid grid-cols-2 gap-2">
                                     {ROLES.map(role => (
                                         <button key={`demo_${role.id}`} type="button" onClick={() => startDemoLogin(role.id)} className="p-2 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded flex items-center justify-center gap-1 transition-colors"><role.icon className="w-3 h-3"/> {role.label}</button>
@@ -568,6 +574,127 @@
             const isActive2 = actualPhase === 2; const canEdit2 = (canEdit('ohp') || isAdmin) && isActive2;
             const isActive3 = actualPhase === 3; const canEdit3 = canEdit('employee') && isActive3;
             const isActive4 = actualPhase === 4; const canEditEmp4 = canEdit('employee') && isActive4; const canEditMgr4 = canEdit('manager') && isActive4;
+
+            // Helper function for rendering questions
+            const renderQ = (id, title, options, disabled, formData, handleInputChange) => (
+                <div key={id} className="flex flex-col p-4 bg-white border border-slate-200 rounded-lg shadow-sm mb-4">
+                    <span className="text-slate-700 font-bold mb-3 text-sm leading-relaxed">{title}</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
+                        {options.map((opt, i) => (
+                            <label key={i} className="flex items-center gap-2 cursor-pointer p-2 bg-slate-50 rounded border border-slate-200 hover:bg-blue-50 transition-colors">
+                                <input type="radio" name={id} value={String(i+1)} checked={String(formData[id]) === String(i+1)} onChange={handleInputChange} disabled={disabled} className="w-4 h-4 text-blue-600 disabled:opacity-50"/>
+                                <span className="text-slate-700 font-medium text-xs">{opt}</span>
+                            </label>
+                        ))}
+                    </div>
+                </div>
+            );
+            const renderText = (id, placeholder, disabled, formData, handleInputChange) => (
+                <textarea name={id} value={formData[id] || ''} onChange={handleInputChange} disabled={disabled} placeholder={placeholder} className="w-full p-3 border border-slate-300 rounded-md bg-white h-24 mb-4 disabled:bg-slate-100 disabled:text-slate-500 text-sm focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
+            );
+
+            // Question Definitions
+            const empQuestions = {
+                q1: [
+                    ['emp_q1_1', 'Q1-1. 現在、勤務時間に近い時間帯で日中活動できていますか', ['問題なくできている', 'おおむねできている', '少し不安がある', 'できていない']],
+                    ['emp_q1_2', 'Q1-2. 所定労働時間に相当する時間、活動を続けられますか', ['問題なくできる', 'おおむねできる', '途中で休憩が必要', '難しい']],
+                    ['emp_q1_3', 'Q1-3. 復職後、予定された勤務を継続できる見込みがありますか', ['ある', '少し不安がある', 'かなり不安がある', 'わからない']],
+                    ['emp_q1_4', 'Q1-4. 現在の体調は、ここ1〜2週間で安定していますか', ['安定している', 'おおむね安定している', '日によって波がある', '不安定である']],
+                    ['emp_q1_5', 'Q1-5. 復職後、急な体調悪化で勤務継続が難しくなる不安はありますか', ['ない', '少しある', 'かなりある', 'わからない']]
+                ],
+                q2: [
+                    ['emp_q2_1', 'Q2-1. 業務中に注意力が低下するような症状はありますか', ['ない', '時々ある', 'よくある', '判断できない']],
+                    ['emp_q2_2', 'Q2-2. めまい・ふらつき・失神しそうな感じはありますか', ['ない', '時々ある', 'よくある', '判断できない']],
+                    ['emp_q2_3', 'Q2-3. 痛み、息切れ、強い疲労感などにより、安全な作業に不安がありますか', ['ない', '少しある', 'かなりある', '判断できない']],
+                    ['emp_q2_4', 'Q2-4. 服薬や治療の影響で、眠気・集中力低下・動作の遅れなどがありますか', ['ない', '少しある', 'かなりある', 'わからない']],
+                    ['emp_q2_5', 'Q2-5. 自分自身で「安全に働ける状態」と思いますか', ['思う', 'おおむね思う', '少し不安がある', '不安が大きい']]
+                ],
+                q3: [
+                    ['emp_q3_1', 'Q3-1. 起床時刻は安定していますか', ['安定している', 'おおむね安定している', '日によってばらつきがある', '安定していない']],
+                    ['emp_q3_2', 'Q3-2. 睡眠時間は確保できていますか', ['確保できている', 'おおむね確保できている', '不足する日がある', 'ほとんど確保できていない']],
+                    ['emp_q3_3', 'Q3-3. 睡眠の質は安定していますか', ['安定している', 'おおむね安定している', 'やや不安定', '不安定']],
+                    ['emp_q3_4', 'Q3-4. 日中に強い眠気やだるさがありますか', ['ない', '時々ある', 'よくある', 'ほぼ毎日ある']],
+                    ['emp_q3_5', 'Q3-5. 食事・服薬・通院など、健康管理を継続できていますか', ['できている', 'おおむねできている', '一部できていない', 'できていない']]
+                ],
+                q4a: [
+                    ['emp_q4a_1', 'Q4A-1. 座って作業を続けることに支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
+                    ['emp_q4a_2', 'Q4A-2. パソコン作業や書類作業に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
+                    ['emp_q4a_3', 'Q4A-3. 業務中、集中力を保てそうですか', ['保てる', 'おおむね保てる', '少し不安がある', '難しい']],
+                    ['emp_q4a_4', 'Q4A-4. 電話、メール、会議などの対応に不安はありませんか', ['不安なし', '少し不安あり', '強い不安あり', '判断できない']],
+                    ['emp_q4a_5', 'Q4A-5. 通勤に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']]
+                ],
+                q4b: [
+                    ['emp_q4b_1', 'Q4B-1. 立ち作業を行うことに支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
+                    ['emp_q4b_2', 'Q4B-2. 職場内の歩行や移動に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
+                    ['emp_q4b_3', 'Q4B-3. 階段昇降、しゃがむ、かがむ、手を伸ばすなどの動作に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
+                    ['emp_q4b_4', 'Q4B-4. 作業手順を守り、安全確認を行いながら作業できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']],
+                    ['emp_q4b_5', 'Q4B-5. 重量物の取り扱い、工具使用、機械操作などに不安はありませんか', ['該当業務なし', '不安なし', '少し不安あり', '強い不安あり']],
+                    ['emp_q4b_6', 'Q4B-6. 痛み、疲労、眠気、集中力低下などにより作業ミスが起こる不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']]
+                ],
+                q4c: [
+                    ['emp_q4c_1', 'Q4C-1. 交替勤務に戻ることについて、体力面の不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
+                    ['emp_q4c_2', 'Q4C-2. 夜勤または早朝勤務に対応できる見込みがありますか', ['対応できる', 'おおむね対応できる', '少し不安がある', '難しい']],
+                    ['emp_q4c_3', 'Q4C-3. 勤務間の休息で疲労回復できる見込みがありますか', ['できる', 'おおむねできる', '少し不安がある', '難しい']],
+                    ['emp_q4c_4', 'Q4C-4. 睡眠時間がずれる勤務でも、体調を維持できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']],
+                    ['emp_q4c_5', 'Q4C-5. 夜勤中または早朝勤務中に、眠気や集中力低下の不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
+                    ['emp_q4c_6', 'Q4C-6. 交替勤務に復帰する前に、日勤勤務や段階的勤務が必要だと思いますか', ['不要', 'あると安心', '必要', '判断できない']]
+                ],
+                q5: [
+                    ['emp_q5_1', 'Q5-1. 復職に対して強い不安がありますか', ['ない', '少しある', 'かなりある', 'とても強い']],
+                    ['emp_q5_2', 'Q5-2. 職場の人間関係について不安がありますか', ['ない', '少しある', 'かなりある', 'とても強い']],
+                    ['emp_q5_3', 'Q5-3. 復職後に配慮してほしいことがありますか', ['ない', 'ある', 'わからない', '無回答']],
+                    ['emp_q5_4', 'Q5-4. 復職後、困った時に相談できる相手が職場にいますか', ['いる', 'たぶんいる', 'いない', 'わからない']],
+                    ['emp_q5_5', 'Q5-5. 復職後に体調悪化のサインが出た場合、自分で相談・報告できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']]
+                ]
+            };
+
+            const mgrQuestions = {
+                q1: [
+                    ['mgr_q1_1', 'Q1-1. 本人が所定労働時間の勤務を継続できる見込みはありますか', ['ある', 'おおむねある', '少し不安がある', '判断できない']],
+                    ['mgr_q1_2', 'Q1-2. 復職直後の業務量を調整できますか', ['調整できる', '一部調整できる', '調整が難しい', '判断できない']],
+                    ['mgr_q1_3', 'Q1-3. 残業を制限する必要がある場合、対応できますか', ['対応できる', '一部対応できる', '対応困難', '該当なし']],
+                    ['mgr_q1_4', 'Q1-4. 本人の体調変化に気づける職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']]
+                ],
+                q2: [
+                    ['mgr_q2_1', 'Q2-1. 復職後の業務に安全上の懸念はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
+                    ['mgr_q2_2', 'Q2-2. 予定業務に、事故や災害につながりやすい作業はありますか', ['ない', 'ある', '判断できない', '無回答']],
+                    ['mgr_q2_3', 'Q2-3. 体調や集中力の低下が、安全に影響する可能性はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
+                    ['mgr_q2_4', 'Q2-4. 安全上必要な配慮や作業制限を実施できますか', ['実施できる', '一部実施できる', '実施困難', '判断できない']],
+                    ['mgr_q2_5', 'Q2-5. 復職直後に単独作業を避けるなどの対応は可能ですか', ['可能', '一部可能', '困難', '該当なし']]
+                ],
+                q3: [
+                    ['mgr_q3_1', 'Q3-1. 復職直後から現在の勤務形態に戻すことに不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
+                    ['mgr_q3_2', 'Q3-2. 日勤固定など、段階的な復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']],
+                    ['mgr_q3_3', 'Q3-3. 通院や治療継続に必要な勤務配慮は可能ですか', ['可能', '一部可能', '困難', '不明']]
+                ],
+                q4a: [
+                    ['mgr_q4a_1', 'Q4A-1. 復職後の業務は、主に座位で対応可能ですか', ['可能', '一部可能', '困難', '該当なし']],
+                    ['mgr_q4a_2', 'Q4A-2. 業務量や納期負荷を一時的に調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']],
+                    ['mgr_q4a_3', 'Q4A-3. 会議、電話、対人対応などの負荷を調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']],
+                    ['mgr_q4a_4', 'Q4A-4. 復職直後に確認・フォローできる担当者はいますか', ['いる', '一部対応可能', 'いない', '未定']]
+                ],
+                q4b: [
+                    ['mgr_q4b_1', 'Q4B-1. 立ち作業や歩行を減らす配慮は可能ですか', ['可能', '一部可能', '困難', '該当なし']],
+                    ['mgr_q4b_2', 'Q4B-2. 重量物、無理な姿勢、階段昇降などを制限できますか', ['可能', '一部可能', '困難', '該当なし']],
+                    ['mgr_q4b_3', 'Q4B-3. 機械操作、工具使用、車両運転などを一時的に制限できますか', ['可能', '一部可能', '困難', '該当なし']],
+                    ['mgr_q4b_4', 'Q4B-4. 復職直後に単独作業を避け、周囲が確認できる体制を取れますか', ['可能', '一部可能', '困難', '該当なし']],
+                    ['mgr_q4b_5', 'Q4B-5. 本人の状態に合わせて作業内容を変更できますか', ['可能', '一部可能', '困難', '判断できない']]
+                ],
+                q4c: [
+                    ['mgr_q4c_1', 'Q4C-1. 復職直後から交替勤務に戻す必要がありますか', ['いいえ', 'できれば戻したい', '必要がある', '判断できない']],
+                    ['mgr_q4c_2', 'Q4C-2. 一定期間、日勤固定での復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']],
+                    ['mgr_q4c_3', 'Q4C-3. 夜勤回数を一時的に減らすことは可能ですか', ['可能', '一部可能', '困難', '該当なし']],
+                    ['mgr_q4c_4', 'Q4C-4. 勤務間インターバルや休息を確保する配慮は可能ですか', ['可能', '一部可能', '困難', '判断できない']],
+                    ['mgr_q4c_5', 'Q4C-5. 夜勤中や早朝勤務中に安全確認・フォローできる体制はありますか', ['ある', '一部ある', '不十分', '判断できない']]
+                ],
+                q5: [
+                    ['mgr_q5_1', 'Q5-1. 復職後、本人に定期的に声かけ・確認を行えますか', ['行える', '一部行える', '難しい', '未定']],
+                    ['mgr_q5_2', 'Q5-2. 本人が相談しやすい職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']],
+                    ['mgr_q5_3', 'Q5-3. 体調不良があった場合、早めに保健師・人事へ相談できますか', ['できる', 'おおむねできる', '難しい', '判断できない']],
+                    ['mgr_q5_4', 'Q5-4. 本人の復職について、職場として懸念していることはありますか', ['ない', 'ある', '判断できない', '無回答']],
+                    ['mgr_q5_5', 'Q5-5. 復職前に保健師または産業医へ相談したいですか', ['不要', '保健師へ相談したい', '産業医へ相談したい', '判断できない']]
+                ]
+            };
 
             return (
                 <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20 relative">
@@ -733,7 +860,7 @@
                                     </div>
                                 </div>
 
-                                {}
+                                {/* Phase 0 */}
                                 {currentPhase === 0 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><FileText className="w-6 h-6 text-blue-600" /> Phase 0: 発生報告フォーム</h2>
@@ -744,7 +871,6 @@
                                             </div>
                                         ) : (
                                             <div className="space-y-10">
-                                                {/* 1. 基本情報 */}
                                                 <section>
                                                     <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span> 基本情報</h3>
                                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
@@ -759,7 +885,6 @@
                                                     </div>
                                                 </section>
 
-                                                {/* 2. 復職判定アンケート (本人用) */}
                                                 <section className="mt-8 border-t border-slate-200 pt-8">
                                                     <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">2</span> 復職判定用アンケート</h3>
                                                     <div className="bg-slate-50 p-6 rounded-lg border border-slate-200 space-y-8">
@@ -834,7 +959,6 @@
                                                     </div>
                                                 </section>
 
-                                                {/* 3. 休業中の連絡体制 */}
                                                 <section>
                                                     <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">3</span> 休業中の連絡体制について</h3>
                                                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -858,7 +982,6 @@
                                                     </div>
                                                 </section>
 
-                                                {/* 4. 手当 */}
                                                 <section>
                                                     <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">4</span> 傷病手当の申請準備</h3>
                                                     <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
@@ -876,7 +999,6 @@
                                                     </div>
                                                 </section>
 
-                                                {/* 5. 同意 */}
                                                 <div className="mt-8 p-4 bg-orange-50 border border-orange-200 rounded-lg">
                                                     <label className="flex items-start gap-3 cursor-pointer">
                                                         <input type="checkbox" name="consent_privacy" checked={formData.consent_privacy || false} onChange={handleCheckboxChange} disabled={!canEdit0} className="mt-1 w-5 h-5 text-blue-600 rounded border-slate-300 disabled:opacity-50"/>
@@ -896,7 +1018,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* Phase 1 */}
                                 {currentPhase === 1 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><Briefcase className="w-6 h-6 text-indigo-600" /> Phase 1: 職制評価フォーム</h2>
@@ -996,7 +1118,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* Phase 2 */}
                                 {currentPhase === 2 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><Activity className="w-6 h-6 text-purple-600" /> Phase 2: 専門職・自動判定</h2>
@@ -1067,7 +1189,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* Phase 3 */}
                                 {currentPhase === 3 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">就業支援PG</span> 療養専念・復帰準備期</h2>
@@ -1164,7 +1286,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* Phase 4 */}
                                 {currentPhase === 4 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">Phase Ⅲ</span> 就労支援期 (フォローシート)</h2>
@@ -1216,6 +1338,7 @@
                                     </div>
                                 )}
 
+                                {/* Phase 5 (完了) */}
                                 {actualPhase === 5 && currentPhase === 5 && (
                                     <div className="bg-white p-12 rounded-xl shadow-sm border border-slate-200 text-center animate-fade-in-up">
                                         <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100 mb-6"><CheckCircle className="w-10 h-10 text-green-600" /></div>
@@ -1225,7 +1348,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* 専門職用 非公開メモ */}
                                 {(isAdmin || currentRole === 'ohp') && (
                                     <div className="mt-8 bg-amber-50 rounded-xl p-6 shadow-sm border border-amber-200 border-l-4 border-l-amber-500 animate-fade-in-up">
                                         <h3 className="text-amber-900 font-bold mb-2 flex items-center gap-2"><Lock className="w-5 h-5 text-amber-600" /> 専門職専用 対応履歴 / 面談メモ（非公開）</h3>
