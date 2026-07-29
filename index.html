@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -24,11 +24,11 @@
     <style>
         .animate-fade-in-up { animation: fadeInUp 0.4s ease-out forwards; }
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        /* カスタムスクロールバー */
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #f1f5f9; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        body { font-family: "Inter", "Noto Sans JP", sans-serif; }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans">
@@ -37,7 +37,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail } from 'lucide-react';
+        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail, AlertCircle, Search } from 'lucide-react';
         
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendEmailVerification } from 'firebase/auth';
@@ -88,7 +88,6 @@
             const [formData, setFormData] = useState({});
             const [cases, setCases] = useState([]); 
 
-            // Auth States
             const [authMode, setAuthMode] = useState('login'); 
             const [authStep, setAuthStep] = useState('email_password'); 
             const [authData, setAuthData] = useState({ email: '', password: '', empId: '', name: '' });
@@ -99,7 +98,6 @@
             const [isLockedOut, setIsLockedOut] = useState(false);
             const [authErrorMsg, setAuthErrorMsg] = useState('');
 
-            // Dashboard States
             const [dashboardTab, setDashboardTab] = useState('cases'); 
             const [usersList, setUsersList] = useState([]);
             const [showCreateUserModal, setShowCreateUserModal] = useState(false);
@@ -124,7 +122,6 @@
                             const docSnap = await getDoc(docRef);
                             if (docSnap.exists()) {
                                 let userData = docSnap.data();
-                                // MFAシミュレーション：登録済みなら自動ログインを許可する
                                 if (userData.mfaEnrolled || user.email === MASTER_ADMIN_EMAIL) {
                                     setCurrentUser(userData);
                                     setCurrentRole(userData.role);
@@ -181,27 +178,15 @@
                         setAuthStep('verify_email');
                     }
                 } catch (error) {
-                    console.error("Auth Error:", error);
                     setLoginAttempts(prev => prev + 1);
-                    if (error.code === 'auth/email-already-in-use') {
-                        setAuthErrorMsg("このメールアドレスは既に登録されています。「すでにアカウントをお持ちの方」からログインしてください。");
-                    } else if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-                        setAuthErrorMsg("メールアドレスまたはパスワードが間違っています。");
-                    } else if (error.code === 'auth/too-many-requests') {
-                        setAuthErrorMsg("短時間にアクセスが集中したためロックされました。少し時間をおいてください。");
-                    } else {
-                        setAuthErrorMsg("認証エラーが発生しました。入力内容を確認してください。");
-                    }
+                    if (error.code === 'auth/email-already-in-use') setAuthErrorMsg("このメールアドレスは既に登録されています。");
+                    else if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') setAuthErrorMsg("メールアドレスまたはパスワードが間違っています。");
+                    else setAuthErrorMsg("認証エラーが発生しました。");
                 }
             };
 
             const handleAuthSuccess = async (user) => {
-                if (!user.emailVerified) { 
-                    setAuthStep('verify_email'); 
-                    return; 
-                }
-                
-                // FirestoreからユーザーのMFA登録状況を確認
+                if (!user.emailVerified) { setAuthStep('verify_email'); return; }
                 const docRef = doc(db, "users", user.uid);
                 const docSnap = await getDoc(docRef);
                 let isMfaEnrolled = false;
@@ -209,52 +194,39 @@
                 if (docSnap.exists()) {
                     isMfaEnrolled = docSnap.data().mfaEnrolled;
                 } else {
-                    // 何らかの理由で名簿がない場合は復旧する
                     const fallbackRole = user.email === MASTER_ADMIN_EMAIL ? 'admin' : 'employee';
                     await setDoc(docRef, { id: user.uid, empId: 'N/A', name: user.displayName || '名無し', role: fallbackRole, email: user.email, mfaEnrolled: false });
                 }
 
-                // MFAのシミュレーション画面へ振り分け
-                if (isMfaEnrolled) {
-                    setAuthStep('verify_signin'); // すでに登録済ならコード入力へ
-                } else {
-                    setAuthStep('enroll_phone'); // 未登録なら電話番号入力へ
-                }
+                if (isMfaEnrolled) setAuthStep('verify_signin'); 
+                else setAuthStep('enroll_phone'); 
             };
 
             const checkEmailVerification = async () => {
                 setAuthErrorMsg('');
                 try {
                     await auth.currentUser.reload();
-                    if (auth.currentUser.emailVerified) {
-                        await handleAuthSuccess(auth.currentUser);
-                    } else {
-                        setAuthErrorMsg("まだメールの確認が完了していません。リンクをクリックしてから再度お試しください。");
-                    }
+                    if (auth.currentUser.emailVerified) await handleAuthSuccess(auth.currentUser);
+                    else setAuthErrorMsg("まだメールの確認が完了していません。");
                 } catch (error) { handleLogout(); }
             };
             
             const resendVerificationEmail = async () => {
                 try { await sendEmailVerification(auth.currentUser); setAuthErrorMsg("確認メールを再送信しました。"); } 
-                catch (error) { setAuthErrorMsg("メールの送信に失敗しました。時間をおいてお試しください。"); }
+                catch (error) { setAuthErrorMsg("メールの送信に失敗しました。"); }
             };
 
             const startMfaEnrollment = async (e) => {
                 e.preventDefault();
                 setAuthErrorMsg('');
-                // 実際のSMSは送信せず、画面だけを次に進める
                 setAuthStep('verify_enroll');
             };
 
             const verifyCode = async (e) => {
                 e.preventDefault();
                 setAuthErrorMsg('');
-                
-                // デモ用パスコードの検証
                 if (verificationCode === '123456') {
                     const user = auth.currentUser;
-                    
-                    // 新規登録時のみ、MFA登録完了フラグを立てる
                     if (authStep === 'verify_enroll') {
                         await setDoc(doc(db, "users", user.uid), { mfaEnrolled: true }, { merge: true });
                     }
@@ -305,8 +277,7 @@
                     setNewUserData({ empId: '', name: '', email: '', password: '', role: 'employee' });
                     setTimeout(() => { setShowCreateUserModal(false); setAdminCreateMsg({ type: '', text: '' }); }, 1500);
                 } catch (error) {
-                    if (error.code === 'auth/email-already-in-use') setAdminCreateMsg({ type: 'error', text: 'このメールアドレスは既に登録されています。' });
-                    else if (error.code === 'auth/weak-password') setAdminCreateMsg({ type: 'error', text: 'パスワードは6文字以上で設定してください。' });
+                    if (error.code === 'auth/email-already-in-use') setAdminCreateMsg({ type: 'error', text: '既に登録されています。' });
                     else setAdminCreateMsg({ type: 'error', text: 'ユーザーの作成に失敗しました。' });
                 }
             };
@@ -326,7 +297,7 @@
                     setCases([
                         { id: 'd1', empId: '10001', name: '山田 太郎', department: '営業部', phase: 0, symptom: '腰痛', absence_duration: 'over_1week' },
                         { id: 'd2', empId: '10002', name: '佐藤 花子', department: '総務部', phase: 1, symptom: '適応障害', q_request_ohp: 'yes' },
-                        { id: 'd3', empId: '10003', name: '鈴木 一郎', department: '製造部', phase: 2, mgr_safety_concern: 'yes', mgr_need_care: 'yes' },
+                        { id: 'd3', empId: '10003', name: '鈴木 一郎', department: '製造部', phase: 2, mgr_safety_concern: 'yes', mgr_need_care: 'yes', emp_impression: '体調がすぐれず、通院を続けています。', mgr_q0_2: '部品の組み立て作業' },
                         { id: 'd4', empId: '10004', name: '高橋 健太', department: '開発部', phase: 3, report_health: '安定しています', report_desire: 'prepare' },
                         { id: 'd5', empId: '10005', name: '伊藤 美咲', department: '人事部', phase: 4, emp_q1: '4', mgr_q1: '3' },
                     ]);
@@ -381,6 +352,13 @@
                     if (!isDemoMode && formData.id) await setDoc(doc(db, "cases", formData.id), newData);
                 });
             };
+
+            const revertPhase = (targetPhase) => {
+                requestConfirm(`進捗を「Phase ${targetPhase}」に強制的に差し戻します。よろしいですか？`, async () => {
+                    saveData({ phase: targetPhase });
+                });
+            };
+
             const deleteCase = (caseId, caseName) => {
                 requestConfirm(`${caseName}さんのデータを完全に削除します。よろしいですか？`, async () => {
                     if (!isDemoMode) { try { await deleteDoc(doc(db, "cases", caseId)); } catch (error) {} } 
@@ -396,34 +374,41 @@
             };
 
             const calculateRiskScore = () => {
-                let score = 0; let reasons = [];
-                let isLevel3 = false; let isLevel2 = false; let isLevel1 = false;
+                let score = 0; 
+                let reasons = []; 
 
-                // 本人回答からの強制フラグ
-                if (formData.emp_q0_2 === '2') { reasons.push('主治医から就業制限あり (+Lv2)'); isLevel2 = true; }
-                if (formData.emp_q0_1 === '4') { reasons.push('復職可能と言われていない (+Lv3)'); isLevel3 = true; }
-                if (formData.emp_q1_2 === '4' || formData.emp_q1_3 === '3' || formData.emp_q1_3 === '4') { reasons.push('勤務継続に「難しい・不安」がある (+Lv2)'); isLevel2 = true; }
-                if (formData.emp_q3_2 === '4' || formData.emp_q3_3 === '4') { reasons.push('睡眠が不安定・不足している (+Lv2)'); isLevel2 = true; }
-                if (formData.emp_q2_1 === '3' || formData.emp_q3_4 === '3' || formData.emp_q3_4 === '4') { reasons.push('強い眠気や集中力低下がある (+Lv2)'); isLevel2 = true; }
-                if (formData.emp_q2_2 === '3') { reasons.push('めまい・ふらつき・失神等の不安がある (+Lv2)'); isLevel2 = true; }
-                if (formData.emp_q5_1 === '4') { reasons.push('復職への「とても強い不安」がある (+Lv2)'); isLevel2 = true; }
-                if (formData.emp_q5_2 === '3' || formData.emp_q5_2 === '4') { reasons.push('職場の人間関係に強い不安がある (+Lv2)'); isLevel2 = true; }
-                if (formData.emp_q4c_1 === '3' || formData.emp_q4c_2 === '4' || formData.emp_q4c_5 === '3') { reasons.push('交替勤務復帰への強い不安がある (+Lv2)'); isLevel2 = true; }
-                if (formData.emp_q1_4 === '4') { reasons.push('直近の体調が不安定である (+Lv2)'); isLevel2 = true; }
+                const addReason = (item, points, source) => {
+                    reasons.push({ item, points, source });
+                    score += points;
+                };
 
-                // 職制回答からの強制フラグ
-                if (formData.mgr_q2_1 === '3') { reasons.push('業務に安全上の懸念あり(職制評価) (+Lv3)'); isLevel3 = true; }
-                if (formData.mgr_q2_4 === '3') { reasons.push('必要な配慮の実施が現場で困難 (+Lv3)'); isLevel3 = true; }
-                if (formData.mgr_q0_3 === '4') { reasons.push('復職後の業務内容が未定 (+Lv2)'); isLevel2 = true; }
-                if (formData.mgr_q2_5 === '3') { reasons.push('単独作業や危険作業を避けられない (+Lv3)'); isLevel3 = true; }
-                if (formData.mgr_q4c_1 === '3') { reasons.push('交替勤務をすぐ再開する必要がある (+Lv2)'); isLevel2 = true; }
-                if (formData.mgr_q5_4 === '2') { reasons.push('職場として受入れに強い懸念がある (+Lv2)'); isLevel2 = true; }
-                if (formData.mgr_q5_5 === '2') { reasons.push('職制が保健師相談を希望している (+Lv1)'); isLevel1 = true; }
-                if (formData.mgr_q5_5 === '3') { reasons.push('職制が産業医相談を希望している (+Lv2)'); isLevel2 = true; }
+                // 本人回答からの強制フラグ(ポイント化)
+                if (formData.emp_q0_2 === '2') addReason('主治医から就業制限あり', 10, '本人回答');
+                if (formData.emp_q0_1 === '4') addReason('復職可能と言われていない', 15, '本人回答');
+                if (formData.emp_q1_2 === '4' || formData.emp_q1_3 === '3' || formData.emp_q1_3 === '4') addReason('勤務継続に「難しい・不安」がある', 5, '本人回答');
+                if (formData.emp_q3_2 === '4' || formData.emp_q3_3 === '4') addReason('睡眠が不安定・不足している', 5, '本人回答');
+                if (formData.emp_q2_1 === '3' || formData.emp_q3_4 === '3' || formData.emp_q3_4 === '4') addReason('強い眠気や集中力低下がある', 5, '本人回答');
+                if (formData.emp_q2_2 === '3') addReason('めまい・ふらつき・失神等の不安がある', 5, '本人回答');
+                if (formData.emp_q5_1 === '4') addReason('復職への「とても強い不安」がある', 5, '本人回答');
+                if (formData.emp_q5_2 === '3' || formData.emp_q5_2 === '4') addReason('職場の人間関係に強い不安がある', 5, '本人回答');
+                if (formData.emp_q4c_1 === '3' || formData.emp_q4c_2 === '4' || formData.emp_q4c_5 === '3') addReason('交替勤務復帰への強い不安がある', 5, '本人回答');
+                if (formData.emp_q1_4 === '4') addReason('直近の体調が不安定である', 5, '本人回答');
+
+                // 職制回答からの強制フラグ(ポイント化)
+                if (formData.mgr_q2_1 === '3') addReason('業務に安全上の懸念あり(職制評価)', 15, '職制評価');
+                if (formData.mgr_q2_4 === '3') addReason('必要な配慮の実施が現場で困難', 15, '職制評価');
+                if (formData.mgr_q0_3 === '4') addReason('復職後の業務内容が未定', 5, '職制評価');
+                if (formData.mgr_q2_5 === '3') addReason('単独作業や危険作業を避けられない', 10, '職制評価');
+                if (formData.mgr_q4c_1 === '3') addReason('交替勤務をすぐ再開する必要がある', 5, '職制評価');
+                if (formData.mgr_q5_4 === '2') addReason('職場として受入れに強い懸念がある', 10, '職制評価');
+                if (formData.mgr_q5_5 === '2') addReason('職制が保健師相談を希望している', 3, '職制評価');
+                if (formData.mgr_q5_5 === '3') addReason('職制が産業医相談を希望している', 10, '職制評価');
 
                 let level = 0;
-                if (isLevel3) level = 3; else if (isLevel2) level = 2; else if (isLevel1) level = 1;
-                if (level === 3) score = 15; else if (level === 2) score = 10; else if (level === 1) score = 5; else score = 0;
+                if (score >= 15) level = 3; 
+                else if (score >= 10) level = 2; 
+                else if (score >= 3) level = 1; 
+                else level = 0;
                 
                 return { score, level, reasons };
             };
@@ -487,34 +472,15 @@
                             {authStep === 'verify_email' && (
                                 <div className="space-y-4 animate-fade-in-up">
                                     <div className="bg-blue-50 p-6 rounded-xl border border-blue-100 mb-4 text-center">
-                                        <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-200 rounded-full mb-3">
-                                            <Mail className="w-6 h-6 text-blue-700"/>
-                                        </div>
+                                        <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-200 rounded-full mb-3"><Mail className="w-6 h-6 text-blue-700"/></div>
                                         <h3 className="font-bold text-blue-900 mb-2">メールアドレスの確認</h3>
-                                        <p className="text-sm text-blue-800 leading-relaxed">
-                                            <b className="block mb-2 text-base">{authData.email}</b>
-                                            宛に本人確認メールを送信しました。<br/>
-                                            メール内のリンクをクリックして、認証を完了させてください。
-                                        </p>
+                                        <p className="text-sm text-blue-800 leading-relaxed"><b className="block mb-2 text-base">{authData.email}</b>宛に本人確認メールを送信しました。<br/>メール内のリンクをクリックして、認証を完了させてください。</p>
                                     </div>
-                                    
-                                    {authErrorMsg && (
-                                        <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 font-medium text-center">
-                                            {authErrorMsg}
-                                        </div>
-                                    )}
-
-                                    <button onClick={checkEmailVerification} className="w-full py-3 rounded-lg font-bold text-white shadow-md transition-all bg-indigo-600 hover:bg-indigo-700 hover:-translate-y-0.5">
-                                        メールのリンクをクリックした後に押す
-                                    </button>
-                                    
+                                    {authErrorMsg && <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 font-medium text-center">{authErrorMsg}</div>}
+                                    <button onClick={checkEmailVerification} className="w-full py-3 rounded-lg font-bold text-white shadow-md transition-all bg-indigo-600 hover:bg-indigo-700">メールのリンクをクリックした後に押す</button>
                                     <div className="pt-4 mt-2 border-t border-slate-100 flex flex-col gap-3">
-                                        <button type="button" onClick={resendVerificationEmail} className="text-sm text-slate-500 hover:text-slate-700 font-bold transition-colors">
-                                            確認メールを再送信する
-                                        </button>
-                                        <button type="button" onClick={handleLogout} className="text-sm text-slate-400 hover:text-red-500 font-bold transition-colors">
-                                            キャンセルして最初の画面に戻る
-                                        </button>
+                                        <button type="button" onClick={resendVerificationEmail} className="text-sm text-slate-500 hover:text-slate-700 font-bold transition-colors">確認メールを再送信する</button>
+                                        <button type="button" onClick={handleLogout} className="text-sm text-slate-400 hover:text-red-500 font-bold transition-colors">キャンセルして最初の画面に戻る</button>
                                     </div>
                                 </div>
                             )}
@@ -531,9 +497,7 @@
                                         <input type="tel" value={phoneNumber} onChange={(e) => setPhoneNumber(e.target.value)} required placeholder="09012345678" className="w-full p-2.5 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/>
                                     </div>
                                     {authErrorMsg && <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 font-medium">{authErrorMsg}</div>}
-                                    <button type="submit" className="w-full py-3 rounded-lg font-bold text-white shadow-md transition-all bg-indigo-600 hover:bg-indigo-700">
-                                        SMSに認証コードを送信
-                                    </button>
+                                    <button type="submit" className="w-full py-3 rounded-lg font-bold text-white shadow-md transition-all bg-indigo-600 hover:bg-indigo-700">SMSに認証コードを送信</button>
                                 </form>
                             )}
 
@@ -547,12 +511,8 @@
                                         <input type="text" value={verificationCode} onChange={(e) => setVerificationCode(e.target.value)} required maxLength={6} placeholder="123456" className="w-full p-3 text-center tracking-[0.5em] text-xl font-bold border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none transition-all"/>
                                     </div>
                                     {authErrorMsg && <div className="p-3 bg-red-50 text-red-700 text-sm rounded-lg border border-red-200 font-medium">{authErrorMsg}</div>}
-                                    <button type="submit" className="w-full py-3 rounded-lg font-bold text-white shadow-md transition-all bg-indigo-600 hover:bg-indigo-700">
-                                        認証して完了
-                                    </button>
-                                    <button type="button" onClick={handleLogout} className="w-full mt-2 text-sm text-slate-500 hover:text-slate-700 font-bold">
-                                        最初からやり直す
-                                    </button>
+                                    <button type="submit" className="w-full py-3 rounded-lg font-bold text-white shadow-md transition-all bg-indigo-600 hover:bg-indigo-700">認証して完了</button>
+                                    <button type="button" onClick={handleLogout} className="w-full mt-2 text-sm text-slate-500 hover:text-slate-700 font-bold">最初からやり直す</button>
                                 </form>
                             )}
 
@@ -575,25 +535,37 @@
             const isActive3 = actualPhase === 3; const canEdit3 = canEdit('employee') && isActive3;
             const isActive4 = actualPhase === 4; const canEditEmp4 = canEdit('employee') && isActive4; const canEditMgr4 = canEdit('manager') && isActive4;
 
-            // Helper function for rendering questions
             const renderQ = (id, title, options, disabled, formData, handleInputChange) => (
                 <div key={id} className="flex flex-col p-4 bg-white border border-slate-200 rounded-lg shadow-sm mb-4">
                     <span className="text-slate-700 font-bold mb-3 text-sm leading-relaxed">{title}</span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
-                        {options.map((opt, i) => (
-                            <label key={i} className="flex items-center gap-2 cursor-pointer p-2 bg-slate-50 rounded border border-slate-200 hover:bg-blue-50 transition-colors">
-                                <input type="radio" name={id} value={String(i+1)} checked={String(formData[id]) === String(i+1)} onChange={handleInputChange} disabled={disabled} className="w-4 h-4 text-blue-600 disabled:opacity-50"/>
-                                <span className="text-slate-700 font-medium text-xs">{opt}</span>
-                            </label>
-                        ))}
+                        {options.map((opt, i) => {
+                            const isChecked = String(formData[id]) === String(i+1);
+                            return (
+                                <label key={i} className={`flex items-center gap-2 p-2 rounded border transition-colors ${
+                                    disabled && isChecked ? 'bg-blue-100 border-blue-400 shadow-sm' : 
+                                    disabled ? 'bg-slate-50 border-slate-100 opacity-50' : 
+                                    'bg-slate-50 border-slate-200 hover:bg-blue-50 cursor-pointer'
+                                }`}>
+                                    <input type="radio" name={id} value={String(i+1)} checked={isChecked} onChange={handleInputChange} disabled={disabled} className={`w-4 h-4 text-blue-600 ${disabled && isChecked ? 'opacity-100' : 'disabled:opacity-50'}`}/>
+                                    <span className={`font-medium text-xs ${disabled && isChecked ? 'text-blue-900 font-bold' : 'text-slate-700'}`}>{opt}</span>
+                                </label>
+                            );
+                        })}
                     </div>
                 </div>
             );
-            const renderText = (id, placeholder, disabled, formData, handleInputChange) => (
-                <textarea name={id} value={formData[id] || ''} onChange={handleInputChange} disabled={disabled} placeholder={placeholder} className="w-full p-3 border border-slate-300 rounded-md bg-white h-24 mb-4 disabled:bg-slate-100 disabled:text-slate-500 text-sm focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
-            );
+            const renderText = (id, placeholder, disabled, formData, handleInputChange) => {
+                const hasValue = !!formData[id];
+                return (
+                <textarea name={id} value={formData[id] || ''} onChange={handleInputChange} disabled={disabled} placeholder={placeholder} className={`w-full p-3 border rounded-md h-24 mb-4 text-sm focus:ring-2 focus:ring-blue-500 outline-none ${
+                    disabled && hasValue ? 'bg-blue-50 border-blue-200 text-blue-900 font-medium' : 
+                    disabled ? 'bg-slate-100 border-slate-200 text-slate-500' : 
+                    'bg-white border-slate-300'
+                }`}></textarea>
+                );
+            };
 
-            // Question Definitions
             const empQuestions = {
                 q1: [
                     ['emp_q1_1', 'Q1-1. 現在、勤務時間に近い時間帯で日中活動できていますか', ['問題なくできている', 'おおむねできている', '少し不安がある', 'できていない']],
@@ -616,84 +588,41 @@
                     ['emp_q3_4', 'Q3-4. 日中に強い眠気やだるさがありますか', ['ない', '時々ある', 'よくある', 'ほぼ毎日ある']],
                     ['emp_q3_5', 'Q3-5. 食事・服薬・通院など、健康管理を継続できていますか', ['できている', 'おおむねできている', '一部できていない', 'できていない']]
                 ],
-                q4a: [
-                    ['emp_q4a_1', 'Q4A-1. 座って作業を続けることに支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
-                    ['emp_q4a_2', 'Q4A-2. パソコン作業や書類作業に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
-                    ['emp_q4a_3', 'Q4A-3. 業務中、集中力を保てそうですか', ['保てる', 'おおむね保てる', '少し不安がある', '難しい']],
-                    ['emp_q4a_4', 'Q4A-4. 電話、メール、会議などの対応に不安はありませんか', ['不安なし', '少し不安あり', '強い不安あり', '判断できない']],
-                    ['emp_q4a_5', 'Q4A-5. 通勤に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']]
-                ],
-                q4b: [
-                    ['emp_q4b_1', 'Q4B-1. 立ち作業を行うことに支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
-                    ['emp_q4b_2', 'Q4B-2. 職場内の歩行や移動に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
-                    ['emp_q4b_3', 'Q4B-3. 階段昇降、しゃがむ、かがむ、手を伸ばすなどの動作に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']],
-                    ['emp_q4b_4', 'Q4B-4. 作業手順を守り、安全確認を行いながら作業できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']],
-                    ['emp_q4b_5', 'Q4B-5. 重量物の取り扱い、工具使用、機械操作などに不安はありませんか', ['該当業務なし', '不安なし', '少し不安あり', '強い不安あり']],
-                    ['emp_q4b_6', 'Q4B-6. 痛み、疲労、眠気、集中力低下などにより作業ミスが起こる不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']]
-                ],
-                q4c: [
-                    ['emp_q4c_1', 'Q4C-1. 交替勤務に戻ることについて、体力面の不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
-                    ['emp_q4c_2', 'Q4C-2. 夜勤または早朝勤務に対応できる見込みがありますか', ['対応できる', 'おおむね対応できる', '少し不安がある', '難しい']],
-                    ['emp_q4c_3', 'Q4C-3. 勤務間の休息で疲労回復できる見込みがありますか', ['できる', 'おおむねできる', '少し不安がある', '難しい']],
-                    ['emp_q4c_4', 'Q4C-4. 睡眠時間がずれる勤務でも、体調を維持できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']],
-                    ['emp_q4c_5', 'Q4C-5. 夜勤中または早朝勤務中に、眠気や集中力低下の不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
-                    ['emp_q4c_6', 'Q4C-6. 交替勤務に復帰する前に、日勤勤務や段階的勤務が必要だと思いますか', ['不要', 'あると安心', '必要', '判断できない']]
-                ],
-                q5: [
-                    ['emp_q5_1', 'Q5-1. 復職に対して強い不安がありますか', ['ない', '少しある', 'かなりある', 'とても強い']],
-                    ['emp_q5_2', 'Q5-2. 職場の人間関係について不安がありますか', ['ない', '少しある', 'かなりある', 'とても強い']],
-                    ['emp_q5_3', 'Q5-3. 復職後に配慮してほしいことがありますか', ['ない', 'ある', 'わからない', '無回答']],
-                    ['emp_q5_4', 'Q5-4. 復職後、困った時に相談できる相手が職場にいますか', ['いる', 'たぶんいる', 'いない', 'わからない']],
-                    ['emp_q5_5', 'Q5-5. 復職後に体調悪化のサインが出た場合、自分で相談・報告できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']]
-                ]
+                q4a: [['emp_q4a_1', 'Q4A-1. 座って作業を続けることに支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']], ['emp_q4a_2', 'Q4A-2. パソコン作業や書類作業に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']], ['emp_q4a_3', 'Q4A-3. 業務中、集中力を保てそうですか', ['保てる', 'おおむね保てる', '少し不安がある', '難しい']], ['emp_q4a_4', 'Q4A-4. 電話、メール、会議などの対応に不安はありませんか', ['不安なし', '少し不安あり', '強い不安あり', '判断できない']], ['emp_q4a_5', 'Q4A-5. 通勤に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']]],
+                q4b: [['emp_q4b_1', 'Q4B-1. 立ち作業を行うことに支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']], ['emp_q4b_2', 'Q4B-2. 職場内の歩行や移動に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']], ['emp_q4b_3', 'Q4B-3. 階段昇降、しゃがむ、かがむ、手を伸ばすなどの動作に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']], ['emp_q4b_4', 'Q4B-4. 作業手順を守り、安全確認を行いながら作業できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']], ['emp_q4b_5', 'Q4B-5. 重量物の取り扱い、工具使用、機械操作などに不安はありませんか', ['該当業務なし', '不安なし', '少し不安あり', '強い不安あり']], ['emp_q4b_6', 'Q4B-6. 痛み、疲労、眠気、集中力低下などにより作業ミスが起こる不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']]],
+                q4c: [['emp_q4c_1', 'Q4C-1. 交替勤務に戻ることについて、体力面の不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['emp_q4c_2', 'Q4C-2. 夜勤または早朝勤務に対応できる見込みがありますか', ['対応できる', 'おおむね対応できる', '少し不安がある', '難しい']], ['emp_q4c_3', 'Q4C-3. 勤務間の休息で疲労回復できる見込みがありますか', ['できる', 'おおむねできる', '少し不安がある', '難しい']], ['emp_q4c_4', 'Q4C-4. 睡眠時間がずれる勤務でも、体調を維持できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']], ['emp_q4c_5', 'Q4C-5. 夜勤中または早朝勤務中に、眠気や集中力低下の不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['emp_q4c_6', 'Q4C-6. 交替勤務に復帰する前に、日勤勤務や段階的勤務が必要だと思いますか', ['不要', 'あると安心', '必要', '判断できない']]],
+                q5: [['emp_q5_1', 'Q5-1. 復職に対して強い不安がありますか', ['ない', '少しある', 'かなりある', 'とても強い']], ['emp_q5_2', 'Q5-2. 職場の人間関係について不安がありますか', ['ない', '少しある', 'かなりある', 'とても強い']], ['emp_q5_3', 'Q5-3. 復職後に配慮してほしいことがありますか', ['ない', 'ある', 'わからない', '無回答']], ['emp_q5_4', 'Q5-4. 復職後、困った時に相談できる相手が職場にいますか', ['いる', 'たぶんいる', 'いない', 'わからない']], ['emp_q5_5', 'Q5-5. 復職後に体調悪化のサインが出た場合、自分で相談・報告できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']]]
             };
 
             const mgrQuestions = {
-                q1: [
-                    ['mgr_q1_1', 'Q1-1. 本人が所定労働時間の勤務を継続できる見込みはありますか', ['ある', 'おおむねある', '少し不安がある', '判断できない']],
-                    ['mgr_q1_2', 'Q1-2. 復職直後の業務量を調整できますか', ['調整できる', '一部調整できる', '調整が難しい', '判断できない']],
-                    ['mgr_q1_3', 'Q1-3. 残業を制限する必要がある場合、対応できますか', ['対応できる', '一部対応できる', '対応困難', '該当なし']],
-                    ['mgr_q1_4', 'Q1-4. 本人の体調変化に気づける職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']]
-                ],
-                q2: [
-                    ['mgr_q2_1', 'Q2-1. 復職後の業務に安全上の懸念はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
-                    ['mgr_q2_2', 'Q2-2. 予定業務に、事故や災害につながりやすい作業はありますか', ['ない', 'ある', '判断できない', '無回答']],
-                    ['mgr_q2_3', 'Q2-3. 体調や集中力の低下が、安全に影響する可能性はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
-                    ['mgr_q2_4', 'Q2-4. 安全上必要な配慮や作業制限を実施できますか', ['実施できる', '一部実施できる', '実施困難', '判断できない']],
-                    ['mgr_q2_5', 'Q2-5. 復職直後に単独作業を避けるなどの対応は可能ですか', ['可能', '一部可能', '困難', '該当なし']]
-                ],
-                q3: [
-                    ['mgr_q3_1', 'Q3-1. 復職直後から現在の勤務形態に戻すことに不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']],
-                    ['mgr_q3_2', 'Q3-2. 日勤固定など、段階的な復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']],
-                    ['mgr_q3_3', 'Q3-3. 通院や治療継続に必要な勤務配慮は可能ですか', ['可能', '一部可能', '困難', '不明']]
-                ],
-                q4a: [
-                    ['mgr_q4a_1', 'Q4A-1. 復職後の業務は、主に座位で対応可能ですか', ['可能', '一部可能', '困難', '該当なし']],
-                    ['mgr_q4a_2', 'Q4A-2. 業務量や納期負荷を一時的に調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']],
-                    ['mgr_q4a_3', 'Q4A-3. 会議、電話、対人対応などの負荷を調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']],
-                    ['mgr_q4a_4', 'Q4A-4. 復職直後に確認・フォローできる担当者はいますか', ['いる', '一部対応可能', 'いない', '未定']]
-                ],
-                q4b: [
-                    ['mgr_q4b_1', 'Q4B-1. 立ち作業や歩行を減らす配慮は可能ですか', ['可能', '一部可能', '困難', '該当なし']],
-                    ['mgr_q4b_2', 'Q4B-2. 重量物、無理な姿勢、階段昇降などを制限できますか', ['可能', '一部可能', '困難', '該当なし']],
-                    ['mgr_q4b_3', 'Q4B-3. 機械操作、工具使用、車両運転などを一時的に制限できますか', ['可能', '一部可能', '困難', '該当なし']],
-                    ['mgr_q4b_4', 'Q4B-4. 復職直後に単独作業を避け、周囲が確認できる体制を取れますか', ['可能', '一部可能', '困難', '該当なし']],
-                    ['mgr_q4b_5', 'Q4B-5. 本人の状態に合わせて作業内容を変更できますか', ['可能', '一部可能', '困難', '判断できない']]
-                ],
-                q4c: [
-                    ['mgr_q4c_1', 'Q4C-1. 復職直後から交替勤務に戻す必要がありますか', ['いいえ', 'できれば戻したい', '必要がある', '判断できない']],
-                    ['mgr_q4c_2', 'Q4C-2. 一定期間、日勤固定での復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']],
-                    ['mgr_q4c_3', 'Q4C-3. 夜勤回数を一時的に減らすことは可能ですか', ['可能', '一部可能', '困難', '該当なし']],
-                    ['mgr_q4c_4', 'Q4C-4. 勤務間インターバルや休息を確保する配慮は可能ですか', ['可能', '一部可能', '困難', '判断できない']],
-                    ['mgr_q4c_5', 'Q4C-5. 夜勤中や早朝勤務中に安全確認・フォローできる体制はありますか', ['ある', '一部ある', '不十分', '判断できない']]
-                ],
-                q5: [
-                    ['mgr_q5_1', 'Q5-1. 復職後、本人に定期的に声かけ・確認を行えますか', ['行える', '一部行える', '難しい', '未定']],
-                    ['mgr_q5_2', 'Q5-2. 本人が相談しやすい職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']],
-                    ['mgr_q5_3', 'Q5-3. 体調不良があった場合、早めに保健師・人事へ相談できますか', ['できる', 'おおむねできる', '難しい', '判断できない']],
-                    ['mgr_q5_4', 'Q5-4. 本人の復職について、職場として懸念していることはありますか', ['ない', 'ある', '判断できない', '無回答']],
-                    ['mgr_q5_5', 'Q5-5. 復職前に保健師または産業医へ相談したいですか', ['不要', '保健師へ相談したい', '産業医へ相談したい', '判断できない']]
-                ]
+                q1: [['mgr_q1_1', 'Q1-1. 本人が所定労働時間の勤務を継続できる見込みはありますか', ['ある', 'おおむねある', '少し不安がある', '判断できない']], ['mgr_q1_2', 'Q1-2. 復職直後の業務量を調整できますか', ['調整できる', '一部調整できる', '調整が難しい', '判断できない']], ['mgr_q1_3', 'Q1-3. 残業を制限する必要がある場合、対応できますか', ['対応できる', '一部対応できる', '対応困難', '該当なし']], ['mgr_q1_4', 'Q1-4. 本人の体調変化に気づける職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']]],
+                q2: [['mgr_q2_1', 'Q2-1. 復職後の業務に安全上の懸念はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q2_2', 'Q2-2. 予定業務に、事故や災害につながりやすい作業はありますか', ['ない', 'ある', '判断できない', '無回答']], ['mgr_q2_3', 'Q2-3. 体調や集中力の低下が、安全に影響する可能性はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q2_4', 'Q2-4. 安全上必要な配慮や作業制限を実施できますか', ['実施できる', '一部実施できる', '実施困難', '判断できない']], ['mgr_q2_5', 'Q2-5. 復職直後に単独作業を避けるなどの対応は可能ですか', ['可能', '一部可能', '困難', '該当なし']]],
+                q3: [['mgr_q3_1', 'Q3-1. 復職直後から現在の勤務形態に戻すことに不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q3_2', 'Q3-2. 日勤固定など、段階的な復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q3_3', 'Q3-3. 通院や治療継続に必要な勤務配慮は可能ですか', ['可能', '一部可能', '困難', '不明']]],
+                q4a: [['mgr_q4a_1', 'Q4A-1. 復職後の業務は、主に座位で対応可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4a_2', 'Q4A-2. 業務量や納期負荷を一時的に調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']], ['mgr_q4a_3', 'Q4A-3. 会議、電話、対人対応などの負荷を調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']], ['mgr_q4a_4', 'Q4A-4. 復職直後に確認・フォローできる担当者はいますか', ['いる', '一部対応可能', 'いない', '未定']]],
+                q4b: [['mgr_q4b_1', 'Q4B-1. 立ち作業や歩行を減らす配慮は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_2', 'Q4B-2. 重量物、無理な姿勢、階段昇降などを制限できますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_3', 'Q4B-3. 機械操作、工具使用、車両運転などを一時的に制限できますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_4', 'Q4B-4. 復職直後に単独作業を避け、周囲が確認できる体制を取れますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_5', 'Q4B-5. 本人の状態に合わせて作業内容を変更できますか', ['可能', '一部可能', '困難', '判断できない']]],
+                q4c: [['mgr_q4c_1', 'Q4C-1. 復職直後から交替勤務に戻す必要がありますか', ['いいえ', 'できれば戻したい', '必要がある', '判断できない']], ['mgr_q4c_2', 'Q4C-2. 一定期間、日勤固定での復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4c_3', 'Q4C-3. 夜勤回数を一時的に減らすことは可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4c_4', 'Q4C-4. 勤務間インターバルや休息を確保する配慮は可能ですか', ['可能', '一部可能', '困難', '判断できない']], ['mgr_q4c_5', 'Q4C-5. 夜勤中や早朝勤務中に安全確認・フォローできる体制はありますか', ['ある', '一部ある', '不十分', '判断できない']]],
+                q5: [['mgr_q5_1', 'Q5-1. 復職後、本人に定期的に声かけ・確認を行えますか', ['行える', '一部行える', '難しい', '未定']], ['mgr_q5_2', 'Q5-2. 本人が相談しやすい職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']], ['mgr_q5_3', 'Q5-3. 体調不良があった場合、早めに保健師・人事へ相談できますか', ['できる', 'おおむねできる', '難しい', '判断できない']], ['mgr_q5_4', 'Q5-4. 本人の復職について、職場として懸念していることはありますか', ['ない', 'ある', '判断できない', '無回答']], ['mgr_q5_5', 'Q5-5. 復職前に保健師または産業医へ相談したいですか', ['不要', '保健師へ相談したい', '産業医へ相談したい', '判断できない']]]
+            };
+
+            const renderRawData = (questionsObj, formDataData) => {
+                return Object.entries(questionsObj).map(([category, qs]) => (
+                    <div key={category} className="mb-6">
+                        <h6 className="font-bold text-slate-700 mb-3 border-b-2 border-slate-200 pb-1">{category.toUpperCase()}</h6>
+                        <ul className="space-y-3">
+                            {qs.map(q => {
+                                const id = q[0]; const title = q[1]; const options = q[2];
+                                const val = formDataData[id];
+                                const ansText = val ? options[parseInt(val)-1] || val : '未回答';
+                                return (
+                                    <li key={id} className="text-xs flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-4 border-b border-slate-100 pb-2">
+                                        <span className="text-slate-500 font-medium sm:w-[60%]">{title}</span>
+                                        <span className={`font-bold sm:w-[40%] ${val ? 'text-blue-700' : 'text-slate-400'}`}>{ansText}</span>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
+                ));
             };
 
             return (
@@ -834,6 +763,7 @@
                                     </div>
                                 </div>
 
+                                {}
                                 <div className="mb-10">
                                     <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                                         <Clock className="w-5 h-5 text-slate-500" /> 
@@ -860,7 +790,7 @@
                                     </div>
                                 </div>
 
-                                {/* Phase 0 */}
+                                {}
                                 {currentPhase === 0 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><FileText className="w-6 h-6 text-blue-600" /> Phase 0: 発生報告フォーム</h2>
@@ -873,20 +803,36 @@
                                             <div className="space-y-10">
                                                 <section>
                                                     <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span> 基本情報</h3>
-                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
                                                         <div><label className="block text-sm font-medium text-slate-700 mb-1">所属部署</label><input type="text" name="department" value={formData.department || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500"/></div>
-                                                        <div>
-                                                            <label className="block text-sm font-medium text-slate-700 mb-1">現在の勤務状況</label>
-                                                            <select name="q_absence" value={formData.q_absence || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500">
-                                                                <option value="">選択してください</option><option value="none">休業なし (出勤中)</option><option value="short">4日未満の休業</option><option value="long">1週間以上の長期休業</option>
-                                                            </select>
-                                                        </div>
-                                                        <div><label className="block text-sm font-medium text-slate-700 mb-1">主な症状 (任意)</label><input type="text" name="symptom" value={formData.symptom || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500"/></div>
+                                                        <div><label className="block text-sm font-medium text-slate-700 mb-1">現在の勤務状況</label><select name="q_absence" value={formData.q_absence || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500"><option value="">選択してください</option><option value="none">休業なし (出勤中)</option><option value="short">4日未満の休業</option><option value="long">1週間以上の長期休業</option></select></div>
                                                     </div>
                                                 </section>
 
-                                                <section className="mt-8 border-t border-slate-200 pt-8">
-                                                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">2</span> 復職判定用アンケート</h3>
+                                                <section>
+                                                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">2</span> 休業状況と所感</h3>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-6 rounded-lg border border-slate-200">
+                                                        <div className="md:col-span-2">
+                                                            <label className="block text-sm font-medium text-slate-700 mb-1">主な症状 (任意)</label>
+                                                            <input type="text" name="symptom" value={formData.symptom || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500" placeholder="例: 気分の落ち込み、右足骨折など"/>
+                                                        </div>
+                                                        <div className="md:col-span-2 border-t border-slate-200 pt-4">
+                                                            <label className="block text-sm font-medium text-slate-700 mb-2">休業に関する診断書（お持ちの場合）</label>
+                                                            <div className={`border-2 border-dashed border-slate-300 rounded-lg p-8 text-center transition-colors ${canEdit0 ? 'hover:bg-white cursor-pointer bg-slate-100' : 'bg-slate-100 opacity-60'}`}>
+                                                                <Upload className="w-8 h-8 text-slate-400 mx-auto mb-3" />
+                                                                <span className="text-sm text-slate-500 font-medium block">診断書の写真をアップロード</span>
+                                                                <span className="text-xs text-slate-400 mt-1 block">※JPEG, PNG, PDF形式</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="md:col-span-2 border-t border-slate-200 pt-4">
+                                                            <label className="block text-sm font-bold text-slate-700 mb-2">休業に至った経緯・現在の所感 <span className="text-xs font-normal text-slate-500">(自由記述)</span></label>
+                                                            <textarea name="emp_impression" value={formData.emp_impression || ''} onChange={handleInputChange} disabled={!canEdit0} placeholder="例: ○月頃から体調を崩し、△日から休業しています。現在は薬を飲んで療養中です。" className="w-full p-4 border border-slate-300 rounded-lg bg-white h-32 disabled:bg-slate-100 disabled:text-slate-500 outline-none focus:ring-2 focus:ring-blue-500 leading-relaxed"></textarea>
+                                                        </div>
+                                                    </div>
+                                                </section>
+
+                                                <section className="border-t border-slate-200 pt-8">
+                                                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">3</span> 復職判定用アンケート</h3>
                                                     <div className="bg-slate-50 p-6 rounded-lg border border-slate-200 space-y-8">
                                                         
                                                         <div>
@@ -894,10 +840,7 @@
                                                             {renderQ('emp_q0_1', 'Q0-1. 今回の休業理由について、主治医から復職可能と説明されていますか', ['できると言われている', '条件付きでできると言われている', 'まだ相談できていない', '復職可能とは言われていない'], !canEdit0, formData, handleInputChange)}
                                                             {renderQ('emp_q0_2', 'Q0-2. 主治医から就業上の配慮や制限を指示されていますか', ['なし', 'あり', '不明'], !canEdit0, formData, handleInputChange)}
                                                             {formData.emp_q0_2 === '2' && (
-                                                                <div className="mb-4 pl-4">
-                                                                    <label className="block text-xs font-bold text-slate-700 mb-1">配慮・制限の詳細（自由記載）</label>
-                                                                    {renderText('emp_q0_2_detail', '残業制限、夜勤制限、重量物制限など', !canEdit0, formData, handleInputChange)}
-                                                                </div>
+                                                                <div className="mb-4 pl-4"><label className="block text-xs font-bold text-slate-700 mb-1">配慮・制限の詳細（自由記載）</label>{renderText('emp_q0_2_detail', '残業制限、夜勤制限、重量物制限など', !canEdit0, formData, handleInputChange)}</div>
                                                             )}
                                                             {renderQ('emp_work_style', '【重要】あなたの勤務形態を選択してください（これ以降の設問が変化します）', ['デスクワーク（日勤）', '現場勤務・昼専', '交替勤務', 'その他'], !canEdit0, formData, handleInputChange)}
                                                         </div>
@@ -918,72 +861,43 @@
                                                         </div>
 
                                                         {formData.emp_work_style === '1' && (
-                                                            <div>
-                                                                <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">4-A. 業務遂行能力 (デスクワーク)</h4>
-                                                                {empQuestions.q4a.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}
-                                                            </div>
+                                                            <div className="animate-fade-in-up"><h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">4-A. 業務遂行能力 (デスクワーク)</h4>{empQuestions.q4a.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}</div>
                                                         )}
                                                         {formData.emp_work_style === '2' && (
-                                                            <div>
-                                                                <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">4-B. 業務遂行能力 (現場勤務)</h4>
-                                                                {empQuestions.q4b.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}
-                                                            </div>
+                                                            <div className="animate-fade-in-up"><h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">4-B. 業務遂行能力 (現場勤務)</h4>{empQuestions.q4b.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}</div>
                                                         )}
                                                         {formData.emp_work_style === '3' && (
-                                                            <div>
-                                                                <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">4-C. 業務遂行能力 (交替勤務)</h4>
-                                                                {empQuestions.q4c.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}
-                                                            </div>
+                                                            <div className="animate-fade-in-up"><h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">4-C. 業務遂行能力 (交替勤務)</h4>{empQuestions.q4c.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}</div>
                                                         )}
 
                                                         <div>
                                                             <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">5. 職場適応性・心理面</h4>
                                                             {empQuestions.q5.map(q => renderQ(q[0], q[1], q[2], !canEdit0, formData, handleInputChange))}
                                                             {formData.emp_q5_3 === '2' && (
-                                                                <div className="mb-4 pl-4">
-                                                                    <label className="block text-xs font-bold text-slate-700 mb-1">配慮してほしいことの詳細</label>
-                                                                    {renderText('emp_q5_3_detail', '業務量、残業、人間関係など', !canEdit0, formData, handleInputChange)}
-                                                                </div>
+                                                                <div className="mb-4 pl-4"><label className="block text-xs font-bold text-slate-700 mb-1">配慮してほしいことの詳細</label>{renderText('emp_q5_3_detail', '業務量、残業、人間関係など', !canEdit0, formData, handleInputChange)}</div>
                                                             )}
                                                         </div>
 
                                                         <div>
                                                             <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-blue-200 pb-2">6. 本人からの自由記載</h4>
-                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-1. 復職にあたり、会社に伝えておきたいこと</label>
-                                                            {renderText('emp_q6_1', '', !canEdit0, formData, handleInputChange)}
-                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-2. 現在、不安に感じていること</label>
-                                                            {renderText('emp_q6_2', '', !canEdit0, formData, handleInputChange)}
-                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-3. 復職後、避けたい・配慮してほしい業務</label>
-                                                            {renderText('emp_q6_3', '', !canEdit0, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-1. 復職にあたり、会社に伝えておきたいこと</label>{renderText('emp_q6_1', '', !canEdit0, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-2. 現在、不安に感じていること</label>{renderText('emp_q6_2', '', !canEdit0, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-3. 復職後、避けたい・配慮してほしい業務</label>{renderText('emp_q6_3', '', !canEdit0, formData, handleInputChange)}
                                                         </div>
                                                     </div>
                                                 </section>
 
                                                 <section>
-                                                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">3</span> 休業中の連絡体制について</h3>
+                                                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">4</span> 休業中の連絡体制について</h3>
                                                     <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                        <div>
-                                                            <label className="block text-sm font-medium text-slate-700 mb-1">希望する会社からの連絡手段</label>
-                                                            <select name="contact_method" value={formData.contact_method || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500">
-                                                                <option value="">選択してください</option><option value="private_email">私用メールアドレス</option><option value="phone_call">電話</option><option value="sms">SMS / メッセージアプリ</option><option value="mail">郵送</option>
-                                                            </select>
-                                                        </div>
-                                                        <div>
-                                                            <label className="block text-sm font-medium text-slate-700 mb-1">希望する連絡頻度の目安</label>
-                                                            <select name="contact_frequency" value={formData.contact_frequency || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500">
-                                                                <option value="">選択してください</option><option value="weekly">週1回程度</option><option value="biweekly">2週間に1回程度</option><option value="monthly">月1回程度</option><option value="emergency_only">急ぎの用件のみ</option>
-                                                            </select>
-                                                        </div>
-                                                        <div className="md:col-span-2">
-                                                            <label className="block text-sm font-medium text-slate-700 mb-1">具体的な連絡先 (電話番号・メールアドレス・郵送先など)</label>
-                                                            <input type="text" name="contact_detail" value={formData.contact_detail || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500" placeholder="例: 090-XXXX-XXXX / private@example.com"/>
-                                                            <p className="text-xs text-slate-500 mt-1 font-medium">※会社貸与のPC・スマホを確認できない場合を想定し、確実に繋がる連絡先を記載してください。</p>
-                                                        </div>
+                                                        <div><label className="block text-sm font-medium text-slate-700 mb-1">希望する会社からの連絡手段</label><select name="contact_method" value={formData.contact_method || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500"><option value="">選択してください</option><option value="private_email">私用メールアドレス</option><option value="phone_call">電話</option><option value="sms">SMS / メッセージアプリ</option><option value="mail">郵送</option></select></div>
+                                                        <div><label className="block text-sm font-medium text-slate-700 mb-1">希望する連絡頻度の目安</label><select name="contact_frequency" value={formData.contact_frequency || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500"><option value="">選択してください</option><option value="weekly">週1回程度</option><option value="biweekly">2週間に1回程度</option><option value="monthly">月1回程度</option><option value="emergency_only">急ぎの用件のみ</option></select></div>
+                                                        <div className="md:col-span-2"><label className="block text-sm font-medium text-slate-700 mb-1">具体的な連絡先 (電話番号・メールアドレス・郵送先など)</label><input type="text" name="contact_detail" value={formData.contact_detail || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500" placeholder="例: 090-XXXX-XXXX / private@example.com"/><p className="text-xs text-slate-500 mt-1 font-medium">※会社貸与のPC・スマホを確認できない場合を想定し、確実に繋がる連絡先を記載してください。</p></div>
                                                     </div>
                                                 </section>
 
                                                 <section>
-                                                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">4</span> 傷病手当の申請準備</h3>
+                                                    <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">5</span> 傷病手当の申請準備</h3>
                                                     <div className="bg-blue-50 p-6 rounded-lg border border-blue-200">
                                                         <div className="flex gap-4 items-start">
                                                             <AlertTriangle className="w-6 h-6 text-blue-600 flex-shrink-0 mt-1" />
@@ -1015,10 +929,17 @@
                                                 )}
                                             </div>
                                         )}
+                                        
+                                        {isAdmin && actualPhase > 0 && (
+                                            <div className="mt-8 p-4 bg-red-50 border border-red-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in-up">
+                                                <div className="flex items-center gap-3"><RotateCcw className="w-6 h-6 text-red-600" /><div><h4 className="font-bold text-red-800 text-sm">管理者メニュー: ステータスの差し戻し</h4><p className="text-xs text-red-600 mt-1">現在の実際の進捗は「Phase {actualPhase}」ですが、現在表示中の「Phase 0」に強制的に巻き戻しますか？</p></div></div>
+                                                <button onClick={() => revertPhase(0)} className="whitespace-nowrap px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-sm transition-colors text-sm">Phase 0 に戻す</button>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
-                                {/* Phase 1 */}
+                                {}
                                 {currentPhase === 1 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><Briefcase className="w-6 h-6 text-indigo-600" /> Phase 1: 職制評価フォーム</h2>
@@ -1038,70 +959,35 @@
                                                         <div>
                                                             <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">0. 基本確認</h4>
                                                             {renderQ('mgr_q0_1', 'Q0-1. 本人の復職予定先はどの勤務形態ですか', ['デスクワーク（日勤）', '現場勤務（昼専）', '交替勤務', 'その他'], !canEdit1, formData, handleInputChange)}
-                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q0-2. 復職後に予定している業務内容を記入してください</label>
-                                                            {renderText('mgr_q0_2', '業務の詳細', !canEdit1, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q0-2. 復職後に予定している業務内容を記入してください</label>{renderText('mgr_q0_2', '業務の詳細', !canEdit1, formData, handleInputChange)}
                                                             {renderQ('mgr_q0_3', 'Q0-3. 復職直後から通常業務を予定していますか', ['通常業務を予定', '一部配慮した業務を予定', '段階的復帰を予定', '未定'], !canEdit1, formData, handleInputChange)}
                                                         </div>
-
                                                         <div>
                                                             <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">1. 勤務継続に関する評価</h4>
                                                             {mgrQuestions.q1.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
                                                         </div>
-
                                                         <div>
                                                             <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">2. 安全就業に関する評価</h4>
                                                             {mgrQuestions.q2.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
-                                                            {formData.mgr_q2_2 === '2' && (
-                                                                <div className="mb-4 pl-4">
-                                                                    <label className="block text-xs font-bold text-slate-700 mb-1">該当する作業の詳細</label>
-                                                                    {renderText('mgr_q2_2_detail', '機械操作、高所作業など', !canEdit1, formData, handleInputChange)}
-                                                                </div>
-                                                            )}
+                                                            {formData.mgr_q2_2 === '2' && (<div className="mb-4 pl-4"><label className="block text-xs font-bold text-slate-700 mb-1">該当する作業の詳細</label>{renderText('mgr_q2_2_detail', '機械操作、高所作業など', !canEdit1, formData, handleInputChange)}</div>)}
                                                         </div>
-
                                                         <div>
                                                             <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">3. 勤務形態・配慮に関する評価</h4>
                                                             {mgrQuestions.q3.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
                                                         </div>
-
-                                                        {formData.mgr_q0_1 === '1' && (
-                                                            <div>
-                                                                <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">4-A. 業務遂行能力 (デスクワーク)</h4>
-                                                                {mgrQuestions.q4a.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
-                                                            </div>
-                                                        )}
-                                                        {formData.mgr_q0_1 === '2' && (
-                                                            <div>
-                                                                <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">4-B. 業務遂行能力 (現場勤務)</h4>
-                                                                {mgrQuestions.q4b.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
-                                                            </div>
-                                                        )}
-                                                        {formData.mgr_q0_1 === '3' && (
-                                                            <div>
-                                                                <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">4-C. 業務遂行能力 (交替勤務)</h4>
-                                                                {mgrQuestions.q4c.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
-                                                            </div>
-                                                        )}
-
+                                                        {formData.mgr_q0_1 === '1' && (<div><h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">4-A. 業務遂行能力 (デスクワーク)</h4>{mgrQuestions.q4a.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}</div>)}
+                                                        {formData.mgr_q0_1 === '2' && (<div><h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">4-B. 業務遂行能力 (現場勤務)</h4>{mgrQuestions.q4b.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}</div>)}
+                                                        {formData.mgr_q0_1 === '3' && (<div><h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">4-C. 業務遂行能力 (交替勤務)</h4>{mgrQuestions.q4c.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}</div>)}
                                                         <div>
                                                             <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">5. 職場受入れ・フォロー体制</h4>
                                                             {mgrQuestions.q5.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}
-                                                            {formData.mgr_q5_4 === '2' && (
-                                                                <div className="mb-4 pl-4">
-                                                                    <label className="block text-xs font-bold text-slate-700 mb-1">懸念していることの詳細</label>
-                                                                    {renderText('mgr_q5_4_detail', '', !canEdit1, formData, handleInputChange)}
-                                                                </div>
-                                                            )}
+                                                            {formData.mgr_q5_4 === '2' && (<div className="mb-4 pl-4"><label className="block text-xs font-bold text-slate-700 mb-1">懸念していることの詳細</label>{renderText('mgr_q5_4_detail', '', !canEdit1, formData, handleInputChange)}</div>)}
                                                         </div>
-
                                                         <div>
                                                             <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">6. 職制からの自由記載</h4>
-                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-1. 復職後に予定している配慮内容</label>
-                                                            {renderText('mgr_q6_1', '', !canEdit1, formData, handleInputChange)}
-                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-2. 安全面・業務面で気になる点</label>
-                                                            {renderText('mgr_q6_2', '', !canEdit1, formData, handleInputChange)}
-                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-3. 本人の復職について、職場として確認しておきたいこと</label>
-                                                            {renderText('mgr_q6_3', '', !canEdit1, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-1. 復職後に予定している配慮内容</label>{renderText('mgr_q6_1', '', !canEdit1, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-2. 安全面・業務面で気になる点</label>{renderText('mgr_q6_2', '', !canEdit1, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q6-3. 本人の復職について、職場として確認しておきたいこと</label>{renderText('mgr_q6_3', '', !canEdit1, formData, handleInputChange)}
                                                         </div>
                                                     </div>
                                                 </section>
@@ -1115,10 +1001,17 @@
                                                 )}
                                             </div>
                                         )}
+
+                                        {isAdmin && actualPhase > 1 && (
+                                            <div className="mt-8 p-4 bg-red-50 border border-red-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in-up">
+                                                <div className="flex items-center gap-3"><RotateCcw className="w-6 h-6 text-red-600" /><div><h4 className="font-bold text-red-800 text-sm">管理者メニュー: ステータスの差し戻し</h4><p className="text-xs text-red-600 mt-1">現在の実際の進捗は「Phase {actualPhase}」ですが、現在表示中の「Phase 1」に強制的に巻き戻しますか？</p></div></div>
+                                                <button onClick={() => revertPhase(1)} className="whitespace-nowrap px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-sm transition-colors text-sm">Phase 1 に戻す</button>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
-                                {/* Phase 2 */}
+                                {}
                                 {currentPhase === 2 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><Activity className="w-6 h-6 text-purple-600" /> Phase 2: 専門職・自動判定</h2>
@@ -1132,64 +1025,132 @@
                                                 {(() => {
                                                     const { score, level, reasons } = calculateRiskScore();
                                                     return (
-                                                        <div className="mb-8">
-                                                            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-slate-200 p-6 rounded-t-xl text-center relative overflow-hidden">
-                                                                <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-4">
-                                                                    <div className="text-left">
-                                                                        <p className="text-indigo-600 font-bold mb-1 text-sm tracking-wider">SYSTEM RESULT: FORCED FLAG TRIAGE</p>
-                                                                        <h3 className="text-2xl font-black text-slate-800">最高リスク判定: 
-                                                                            <span className={`text-4xl ml-2 ${level === 3 ? 'text-red-600' : level === 2 ? 'text-orange-500' : level === 1 ? 'text-yellow-600' : 'text-green-600'}`}>Level {level}</span>
-                                                                        </h3>
-                                                                        <p className="text-xs text-slate-500 mt-2">※いずれかの設問でリスク要素（フラグ）が検知された場合、強制的に安全な上位レベルに引き上げられます。</p>
+                                                        <div className="space-y-6">
+                                                            {/* SYSTEM RESULT CARD */}
+                                                            <div>
+                                                                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-slate-200 p-6 rounded-t-xl text-center relative overflow-hidden">
+                                                                    <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-4">
+                                                                        <div className="text-left">
+                                                                            <p className="text-indigo-600 font-bold mb-1 text-sm tracking-wider">SYSTEM RESULT</p>
+                                                                            <h3 className="text-2xl font-black text-slate-800">総合リスクスコア: <span className="text-4xl text-indigo-700 ml-2">{score}</span> <span className="text-lg text-slate-500">pt</span></h3>
+                                                                            <p className="text-xs text-slate-500 mt-2">※数値が高いほど、安全配慮や業務への影響リスクが高く、より上位の専門職の介入が推奨されます。</p>
+                                                                        </div>
+                                                                        <div className="text-right flex flex-col items-center">
+                                                                            <span className={`inline-block px-4 py-2 rounded-lg font-black text-xl shadow-sm border-2 ${level === 3 ? 'bg-red-50 text-red-600 border-red-200' : level === 2 ? 'bg-orange-50 text-orange-600 border-orange-200' : level === 1 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-600 border-green-200'}`}>
+                                                                                {level === 3 ? 'Level 3: 5者打合せ' : level === 2 ? 'Level 2: 産業医面談' : level === 1 ? 'Level 1: 保健師確認' : 'Level 0: 通常復帰'}
+                                                                            </span>
+                                                                        </div>
                                                                     </div>
-                                                                    <div className="text-right flex flex-col items-center">
-                                                                        <span className={`inline-block px-4 py-2 rounded-lg font-black text-xl shadow-sm border-2 ${level === 3 ? 'bg-red-50 text-red-600 border-red-200' : level === 2 ? 'bg-orange-50 text-orange-600 border-orange-200' : level === 1 ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : 'bg-green-50 text-green-600 border-green-200'}`}>
-                                                                            {level === 3 ? 'Level 3: 5者打合せ' : level === 2 ? 'Level 2: 産業医面談' : level === 1 ? 'Level 1: 保健師確認' : 'Level 0: 通常復帰'}
-                                                                        </span>
+                                                                    <div className="w-full bg-slate-200 h-2 mt-6 rounded-full overflow-hidden flex">
+                                                                        <div className={`h-full ${score > 0 ? 'bg-green-400' : ''}`} style={{width: '13%'}}></div><div className={`h-full ${score >= 3 ? 'bg-yellow-400' : ''}`} style={{width: '33%'}}></div><div className={`h-full ${score >= 10 ? 'bg-orange-400' : ''}`} style={{width: '46%'}}></div><div className={`h-full ${score >= 15 ? 'bg-red-500' : ''}`} style={{width: '8%'}}></div>
+                                                                    </div>
+                                                                    <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-bold"><span>Lv0: 0-2</span><span className="ml-12">Lv1: 3-9</span><span className="ml-auto mr-12">Lv2: 10-14</span><span>Lv3: 15-</span></div>
+                                                                </div>
+                                                                <div className="bg-white border border-slate-200 border-t-0 rounded-b-xl p-6 shadow-sm">
+                                                                    <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><Activity className="w-5 h-5 text-blue-500"/> 判定スコアの内訳・重みづけ</h4>
+                                                                    <div className="overflow-x-auto">
+                                                                        <table className="w-full text-left text-sm">
+                                                                            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
+                                                                                <tr><th className="p-3 font-bold">検知されたリスク項目</th><th className="p-3 font-bold w-32">出所</th><th className="p-3 font-bold text-right w-24">ポイント</th></tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-slate-100">
+                                                                                {reasons.length > 0 ? reasons.map((r, i) => (
+                                                                                    <tr key={i} className="hover:bg-slate-50">
+                                                                                        <td className="p-3 font-medium text-slate-800">{r.item}</td>
+                                                                                        <td className="p-3 text-slate-500"><span className={`px-2 py-1 rounded text-[10px] font-bold ${r.source === '本人回答' ? 'bg-blue-100 text-blue-800' : 'bg-indigo-100 text-indigo-800'}`}>{r.source}</span></td>
+                                                                                        <td className="p-3 text-right font-bold text-red-600">+{r.points}</td>
+                                                                                    </tr>
+                                                                                )) : <tr><td colSpan="3" className="p-4 text-center text-slate-500">特記すべきリスク要因はありません。</td></tr>}
+                                                                            </tbody>
+                                                                            <tfoot className="bg-slate-50 border-t-2 border-slate-200 font-bold">
+                                                                                <tr><td colSpan="2" className="p-3 text-right text-slate-700">合計スコア:</td><td className="p-3 text-right text-lg text-indigo-700">{score} pt</td></tr>
+                                                                            </tfoot>
+                                                                        </table>
                                                                     </div>
                                                                 </div>
-                                                                <div className="w-full bg-slate-200 h-2 mt-6 rounded-full overflow-hidden flex">
-                                                                    <div className={`h-full ${score > 0 ? 'bg-green-400' : ''}`} style={{width: '13%'}}></div><div className={`h-full ${score >= 5 ? 'bg-yellow-400' : ''}`} style={{width: '33%'}}></div><div className={`h-full ${score >= 10 ? 'bg-orange-400' : ''}`} style={{width: '46%'}}></div><div className={`h-full ${score >= 15 ? 'bg-red-500' : ''}`} style={{width: '8%'}}></div>
-                                                                </div>
-                                                                <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-bold"><span>Lv0</span><span className="ml-12">Lv1</span><span className="ml-auto mr-12">Lv2</span><span>Lv3</span></div>
                                                             </div>
-                                                            <div className="bg-slate-50 border border-slate-200 border-t-0 rounded-b-xl p-6">
-                                                                <h4 className="font-bold text-slate-700 mb-3 text-sm flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-slate-500"/> 検知された強制フラグの内訳</h4>
-                                                                {reasons.length > 0 ? (
-                                                                    <ul className="space-y-2">
-                                                                        {reasons.map((r, idx) => (
-                                                                            <li key={idx} className={`flex items-start gap-2 text-sm font-bold p-2 rounded ${r.includes('Lv3') ? 'bg-red-100 text-red-800 border border-red-200' : 'bg-orange-50 text-orange-800 border border-orange-200'}`}>
-                                                                                <AlertTriangle className={`w-4 h-4 mt-0.5 flex-shrink-0 ${r.includes('Lv3') ? 'text-red-600' : 'text-orange-500'}`}/> {r}
-                                                                            </li>
-                                                                        ))}
-                                                                    </ul>
-                                                                ) : ( <p className="text-sm text-slate-500 font-medium"><CheckCircle className="w-4 h-4 inline text-green-500 mr-1"/>特記すべきリスクフラグは検知されませんでした。</p> )}
+
+                                                            {/* SUMMARY VIEW */}
+                                                            <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm">
+                                                                <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><FileText className="w-5 h-5 text-purple-500"/> 本人・職制の入力情報サマリー</h4>
+                                                                
+                                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                                    {/* 本人 */}
+                                                                    <div className="bg-blue-50/50 p-4 rounded-lg border border-blue-100">
+                                                                        <h5 className="font-bold text-blue-800 mb-4 flex items-center gap-2 border-b border-blue-200 pb-2"><User className="w-4 h-4"/> 本人の所感・要望</h5>
+                                                                        <div className="space-y-4 text-sm">
+                                                                            <div><span className="block text-slate-500 mb-1 text-xs font-bold">休業に至った経緯・現在の所感 (Phase0):</span><p className="bg-white p-3 rounded border border-slate-200 text-slate-700 min-h-[3rem] whitespace-pre-wrap leading-relaxed">{formData.emp_impression || '未入力'}</p></div>
+                                                                            <div><span className="block text-slate-500 mb-1 text-xs font-bold">復職にあたり伝えておきたいこと (Q6-1):</span><p className="bg-white p-3 rounded border border-slate-200 text-slate-700 min-h-[2rem] whitespace-pre-wrap">{formData.emp_q6_1 || '未入力'}</p></div>
+                                                                            <div><span className="block text-slate-500 mb-1 text-xs font-bold">現在不安に感じていること (Q6-2):</span><p className="bg-white p-3 rounded border border-slate-200 text-slate-700 min-h-[2rem] whitespace-pre-wrap">{formData.emp_q6_2 || '未入力'}</p></div>
+                                                                            <div><span className="block text-slate-500 mb-1 text-xs font-bold">避けたい・配慮してほしい業務 (Q6-3):</span><p className="bg-white p-3 rounded border border-slate-200 text-slate-700 min-h-[2rem] whitespace-pre-wrap">{formData.emp_q6_3 || '未入力'}</p></div>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* 職制 */}
+                                                                    <div className="bg-indigo-50/50 p-4 rounded-lg border border-indigo-100">
+                                                                        <h5 className="font-bold text-indigo-800 mb-4 flex items-center gap-2 border-b border-indigo-200 pb-2"><Briefcase className="w-4 h-4"/> 職制の意見・懸念点</h5>
+                                                                        <div className="space-y-4 text-sm">
+                                                                            <div><span className="block text-slate-500 mb-1 text-xs font-bold">復職後に予定している業務内容 (Q0-2):</span><p className="bg-white p-3 rounded border border-slate-200 text-slate-700 min-h-[3rem] whitespace-pre-wrap leading-relaxed">{formData.mgr_q0_2 || '未入力'}</p></div>
+                                                                            <div><span className="block text-slate-500 mb-1 text-xs font-bold">予定している配慮内容 (Q6-1):</span><p className="bg-white p-3 rounded border border-slate-200 text-slate-700 min-h-[2rem] whitespace-pre-wrap">{formData.mgr_q6_1 || '未入力'}</p></div>
+                                                                            <div><span className="block text-slate-500 mb-1 text-xs font-bold">安全面・業務面で気になる点 (Q6-2):</span><p className="bg-white p-3 rounded border border-slate-200 text-slate-700 min-h-[2rem] whitespace-pre-wrap">{formData.mgr_q6_2 || '未入力'}</p></div>
+                                                                            <div><span className="block text-slate-500 mb-1 text-xs font-bold">職場として確認しておきたいこと (Q6-3):</span><p className="bg-white p-3 rounded border border-slate-200 text-slate-700 min-h-[2rem] whitespace-pre-wrap">{formData.mgr_q6_3 || '未入力'}</p></div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                <div className="mt-6">
+                                                                    <details className="group bg-slate-50 rounded-lg border border-slate-200">
+                                                                        <summary className="cursor-pointer font-bold text-slate-700 p-4 list-none flex justify-between items-center hover:bg-slate-100 transition-colors rounded-lg">
+                                                                            <span className="flex items-center gap-2"><Search className="w-4 h-4"/> アンケートの全回答内容（生データ）を確認する</span>
+                                                                            <ChevronRight className="w-5 h-5 transition-transform group-open:rotate-90 text-slate-400"/>
+                                                                        </summary>
+                                                                        <div className="p-6 border-t border-slate-200 text-sm bg-white rounded-b-lg">
+                                                                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                                                                <div>
+                                                                                    <h5 className="font-black text-blue-800 mb-4 border-b-2 border-blue-200 pb-2 flex items-center gap-2"><User className="w-5 h-5"/>本人回答 (Phase 0)</h5>
+                                                                                    {renderRawData(empQuestions, formData)}
+                                                                                </div>
+                                                                                <div>
+                                                                                    <h5 className="font-black text-indigo-800 mb-4 border-b-2 border-indigo-200 pb-2 flex items-center gap-2"><Briefcase className="w-5 h-5"/>職制回答 (Phase 1)</h5>
+                                                                                    {renderRawData(mgrQuestions, formData)}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                    </details>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="border border-purple-200 rounded-xl p-6 bg-purple-50">
+                                                                <h3 className="font-bold text-purple-900 mb-4 flex items-center gap-2"><Shield className="w-5 h-5"/> 最終ルートの決定（保健師・産業医）</h3>
+                                                                <p className="text-sm text-purple-800 mb-6">上記のサマリーとスコアを参考に、最終的な復帰ルートを決定してください。</p>
+                                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                                    <button onClick={() => saveData({ phase: 4 })} disabled={!canEdit2} className="bg-white border-2 border-green-500 text-green-700 hover:bg-green-500 hover:text-white font-bold py-4 px-4 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
+                                                                        <span className="text-lg">A. 通常復帰</span><span className="text-xs font-normal opacity-80 group-hover:opacity-100 text-center">PG導入・面談なし</span>
+                                                                    </button>
+                                                                    <button onClick={() => saveData({ phase: 4 })} disabled={!canEdit2} className="bg-white border-2 border-orange-500 text-orange-700 hover:bg-orange-500 hover:text-white font-bold py-4 px-4 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
+                                                                        <span className="text-lg">B. 条件付復帰</span><span className="text-xs font-normal opacity-80 group-hover:opacity-100 text-center">面談後、配慮付きで復帰<br/>(PGは導入しない)</span>
+                                                                    </button>
+                                                                    <button onClick={() => saveData({ phase: 3 })} disabled={!canEdit2} className="bg-purple-600 text-white hover:bg-purple-700 font-bold py-4 px-4 rounded-xl shadow-md transition-all flex flex-col items-center justify-center gap-2 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
+                                                                        <span className="text-lg">C. 就業支援PGへ</span><span className="text-xs font-normal text-purple-200 text-center">Phase Ⅰ/Ⅱ を開始</span>
+                                                                    </button>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     );
                                                 })()}
-
-                                                <div className="border border-purple-200 rounded-xl p-6 bg-purple-50">
-                                                    <h3 className="font-bold text-purple-900 mb-4 flex items-center gap-2"><Shield className="w-5 h-5"/> 最終ルートの決定（保健師・産業医）</h3>
-                                                    <p className="text-sm text-purple-800 mb-6">上記の自動判定結果を参考に、最終的な復帰ルートを決定してください。</p>
-                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                        <button onClick={() => saveData({ phase: 4 })} disabled={!canEdit2} className="bg-white border-2 border-green-500 text-green-700 hover:bg-green-500 hover:text-white font-bold py-4 px-4 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
-                                                            <span className="text-lg">A. 通常復帰</span><span className="text-xs font-normal opacity-80 group-hover:opacity-100 text-center">PG導入・面談なし</span>
-                                                        </button>
-                                                        <button onClick={() => saveData({ phase: 4 })} disabled={!canEdit2} className="bg-white border-2 border-orange-500 text-orange-700 hover:bg-orange-500 hover:text-white font-bold py-4 px-4 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
-                                                            <span className="text-lg">B. 条件付復帰</span><span className="text-xs font-normal opacity-80 group-hover:opacity-100 text-center">面談後、配慮付きで復帰<br/>(PGは導入しない)</span>
-                                                        </button>
-                                                        <button onClick={() => saveData({ phase: 3 })} disabled={!canEdit2} className="bg-purple-600 text-white hover:bg-purple-700 font-bold py-4 px-4 rounded-xl shadow-md transition-all flex flex-col items-center justify-center gap-2 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
-                                                            <span className="text-lg">C. 就業支援PGへ</span><span className="text-xs font-normal text-purple-200 text-center">Phase Ⅰ/Ⅱ を開始</span>
-                                                        </button>
-                                                    </div>
-                                                </div>
+                                            </div>
+                                        )}
+                                        
+                                        {isAdmin && actualPhase > 2 && (
+                                            <div className="mt-8 p-4 bg-red-50 border border-red-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in-up">
+                                                <div className="flex items-center gap-3"><RotateCcw className="w-6 h-6 text-red-600" /><div><h4 className="font-bold text-red-800 text-sm">管理者メニュー: ステータスの差し戻し</h4><p className="text-xs text-red-600 mt-1">現在の実際の進捗は「Phase {actualPhase}」ですが、現在表示中の「Phase 2」に強制的に巻き戻しますか？</p></div></div>
+                                                <button onClick={() => revertPhase(2)} className="whitespace-nowrap px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-sm transition-colors text-sm">Phase 2 に戻す</button>
                                             </div>
                                         )}
                                     </div>
                                 )}
 
-                                {/* Phase 3 */}
+                                {}
                                 {currentPhase === 3 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">就業支援PG</span> 療養専念・復帰準備期</h2>
@@ -1202,13 +1163,13 @@
                                                     <h3 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2"><span className="w-2 h-6 bg-blue-500 rounded-full"></span>【Phase I】 療養状況報告 (本人入力)</h3>
                                                     <div className="border border-slate-200 rounded-lg p-6 bg-slate-50 mb-4">
                                                         <div className="space-y-4">
-                                                            <div><label className="block text-sm font-medium text-slate-700 mb-1">1. 最近の健康状態について（症状・体調面など）</label><textarea name="report_health" value={formData.report_health || ''} onChange={handleInputChange} disabled={!canEdit3} className="w-full p-3 border border-slate-300 rounded-md bg-white h-24 disabled:bg-slate-100 disabled:text-slate-500 outline-none focus:ring-2 focus:ring-blue-500"></textarea></div>
-                                                            <div><label className="block text-sm font-medium text-slate-700 mb-1">2. 主治医の先生のコメント（症状回復の程度、職場復帰の見通しなど）</label><textarea name="report_doctor" value={formData.report_doctor || ''} onChange={handleInputChange} disabled={!canEdit3} className="w-full p-3 border border-slate-300 rounded-md bg-white h-24 disabled:bg-slate-100 disabled:text-slate-500 outline-none focus:ring-2 focus:ring-blue-500"></textarea></div>
+                                                            <div><label className="block text-sm font-medium text-slate-700 mb-1">1. 最近の健康状態について（症状・体調面など）</label><textarea name="report_health" value={formData.report_health || ''} onChange={handleInputChange} disabled={!canEdit3} className={`w-full p-3 border rounded-md h-24 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${!canEdit3 && formData.report_health ? 'bg-blue-50 border-blue-200 text-blue-900 font-medium' : !canEdit3 ? 'bg-slate-100 border-slate-200 text-slate-500' : 'bg-white border-slate-300'}`}></textarea></div>
+                                                            <div><label className="block text-sm font-medium text-slate-700 mb-1">2. 主治医の先生のコメント（症状回復の程度、職場復帰の見通しなど）</label><textarea name="report_doctor" value={formData.report_doctor || ''} onChange={handleInputChange} disabled={!canEdit3} className={`w-full p-3 border rounded-md h-24 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${!canEdit3 && formData.report_doctor ? 'bg-blue-50 border-blue-200 text-blue-900 font-medium' : !canEdit3 ? 'bg-slate-100 border-slate-200 text-slate-500' : 'bg-white border-slate-300'}`}></textarea></div>
                                                             <div>
                                                                 <label className="block text-sm font-medium text-slate-700 mb-1">3. 復帰準備の開始希望</label>
                                                                 <div className="flex gap-4">
-                                                                    <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="report_desire" value="prepare" checked={formData.report_desire === 'prepare'} onChange={handleInputChange} disabled={!canEdit3} className="w-4 h-4 text-blue-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">復帰準備の開始を希望する</span></label>
-                                                                    <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="report_desire" value="rest" checked={formData.report_desire === 'rest'} onChange={handleInputChange} disabled={!canEdit3} className="w-4 h-4 text-blue-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">引き続き療養に専念する</span></label>
+                                                                    <label className={`flex items-center gap-2 p-2 rounded border transition-colors ${!canEdit3 && formData.report_desire === 'prepare' ? 'bg-blue-100 border-blue-400 shadow-sm' : !canEdit3 ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-blue-50 cursor-pointer'}`}><input type="radio" name="report_desire" value="prepare" checked={formData.report_desire === 'prepare'} onChange={handleInputChange} disabled={!canEdit3} className={`w-4 h-4 text-blue-600 ${!canEdit3 && formData.report_desire === 'prepare' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-medium text-xs ${!canEdit3 && formData.report_desire === 'prepare' ? 'text-blue-900 font-bold' : 'text-slate-700'}`}>復帰準備の開始を希望する</span></label>
+                                                                    <label className={`flex items-center gap-2 p-2 rounded border transition-colors ${!canEdit3 && formData.report_desire === 'rest' ? 'bg-blue-100 border-blue-400 shadow-sm' : !canEdit3 ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-blue-50 cursor-pointer'}`}><input type="radio" name="report_desire" value="rest" checked={formData.report_desire === 'rest'} onChange={handleInputChange} disabled={!canEdit3} className={`w-4 h-4 text-blue-600 ${!canEdit3 && formData.report_desire === 'rest' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-medium text-xs ${!canEdit3 && formData.report_desire === 'rest' ? 'text-blue-900 font-bold' : 'text-slate-700'}`}>引き続き療養に専念する</span></label>
                                                                 </div>
                                                             </div>
                                                         </div>
@@ -1219,7 +1180,7 @@
                                                             {[
                                                                 {id: 'p1_c1', label: '1. 職場復帰をしたいと考えている'}, {id: 'p1_c2', label: '2. 復帰準備を開始することについて、主治医は同意している'}, {id: 'p1_c3', label: '3. 会社との連絡で、体調が悪化することはない'}, {id: 'p1_c4', label: '4. 体調は十分に回復している'}, {id: 'p1_c5', label: '5. 睡眠リズムが整っている（昼間の眠気がない状態）'}, {id: 'p1_c6', label: '6. 食事のリズム、回数、量などを正しくコントロールできている'}, {id: 'p1_c7', label: '7. 日中の外出・身体を動かす事に対して、億劫感はない'}, {id: 'p1_c8', label: '8. 新聞や書籍など、活字を読む事に対して、億劫感はない'}, {id: 'p1_c9', label: '9. 定期受診をきちんとしており、何かあれば主治医に相談できる'}, {id: 'p1_c10', label: '10. 主治医の指示通りに療養している（薬など）'}
                                                             ].map(item => (
-                                                                <label key={item.id} className="flex items-start gap-3 p-2 hover:bg-slate-50 rounded cursor-pointer"><input type="checkbox" name={item.id} checked={formData[item.id] || false} onChange={handleCheckboxChange} disabled={!canEdit3} className="mt-1 w-4 h-4 text-blue-600 rounded border-slate-300 disabled:opacity-50"/><span className="text-slate-700 text-sm leading-tight">{item.label}</span></label>
+                                                                <label key={item.id} className={`flex items-start gap-3 p-2 rounded cursor-pointer transition-colors ${!canEdit3 && formData[item.id] ? 'bg-blue-50 border border-blue-200' : !canEdit3 ? 'opacity-60' : 'hover:bg-slate-50'}`}><input type="checkbox" name={item.id} checked={formData[item.id] || false} onChange={handleCheckboxChange} disabled={!canEdit3} className="mt-1 w-4 h-4 text-blue-600 rounded border-slate-300 disabled:opacity-50"/><span className={`text-sm leading-tight ${!canEdit3 && formData[item.id] ? 'text-blue-900 font-bold' : 'text-slate-700'}`}>{item.label}</span></label>
                                                             ))}
                                                         </div>
                                                     </div>
@@ -1237,7 +1198,7 @@
                                                             {[
                                                                 {id: 'p2_c1', label: '1. いつでも職場復帰できる状態である'}, {id: 'p2_c2', label: '2. 主治医との連携ができている（復帰への同意、注意点の相談など）'}, {id: 'p2_c3', label: '3. 生活リズムは就業に支障がでない状態で安定している（睡眠・起床・活動）'}, {id: 'p2_c4', label: '4. 職場復帰の準備をしていても、体調が悪化することはない'}, {id: 'p2_c5', label: '5. 職場復帰の基準を理解している（週5日フルタイム、本来の期待役割）'}, {id: 'p2_c6', label: '6. 仕事の負荷に対応した自己管理を行えるよう準備をしている'}, {id: 'p2_c7', label: '7. 復帰に向け、療養中に出来ることを行い、復帰に備えている'}, {id: 'p2_c8', label: '8. 通勤時間帯に、会社近くまで来ても問題なく、安全に通勤できる'}, {id: 'p2_c9', label: '9. 復帰後、職制・同僚との関わりにおいて、不安な点はない'}, {id: 'p2_c10', label: '10. 復帰後、体調が変化した時の対処がイメージできている'}
                                                             ].map(item => (
-                                                                <label key={item.id} className="flex items-start gap-3 p-2 hover:bg-slate-50 rounded cursor-pointer"><input type="checkbox" name={item.id} checked={formData[item.id] || false} onChange={handleCheckboxChange} disabled={!canEdit3} className="mt-1 w-4 h-4 text-blue-600 rounded border-slate-300 disabled:opacity-50"/><span className="text-slate-700 text-sm leading-tight">{item.label}</span></label>
+                                                                <label key={item.id} className={`flex items-start gap-3 p-2 rounded cursor-pointer transition-colors ${!canEdit3 && formData[item.id] ? 'bg-blue-50 border border-blue-200' : !canEdit3 ? 'opacity-60' : 'hover:bg-slate-50'}`}><input type="checkbox" name={item.id} checked={formData[item.id] || false} onChange={handleCheckboxChange} disabled={!canEdit3} className="mt-1 w-4 h-4 text-blue-600 rounded border-slate-300 disabled:opacity-50"/><span className={`text-sm leading-tight ${!canEdit3 && formData[item.id] ? 'text-blue-900 font-bold' : 'text-slate-700'}`}>{item.label}</span></label>
                                                             ))}
                                                         </div>
                                                     </div>
@@ -1253,22 +1214,22 @@
                                                                 <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2"><Briefcase className="w-5 h-5 text-indigo-600"/> 職制回答: 試し出勤・配慮措置の受け入れ可否</h4>
                                                                 <p className="text-xs text-slate-500 mb-4">主治医意見や本人の状態を踏まえ、現場として短時間勤務や業務制限の受け入れは現実的に可能ですか？</p>
                                                                 <div className="flex gap-4">
-                                                                    <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="mgr_accept_short_time" value="yes" checked={formData.mgr_accept_short_time === 'yes'} onChange={handleInputChange} disabled={!canEdit('manager') || actualPhase > 3} className="w-4 h-4 text-indigo-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">受け入れ可能 (配慮事項に対応できる)</span></label>
-                                                                    <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="mgr_accept_short_time" value="no" checked={formData.mgr_accept_short_time === 'no'} onChange={handleInputChange} disabled={!canEdit('manager') || actualPhase > 3} className="w-4 h-4 text-indigo-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">受け入れ困難 (現場の体制的に厳しい)</span></label>
+                                                                    <label className={`flex items-center gap-2 p-2 rounded border transition-colors ${!canEdit('manager') && formData.mgr_accept_short_time === 'yes' ? 'bg-indigo-100 border-indigo-400 shadow-sm' : !canEdit('manager') ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-indigo-50 cursor-pointer'}`}><input type="radio" name="mgr_accept_short_time" value="yes" checked={formData.mgr_accept_short_time === 'yes'} onChange={handleInputChange} disabled={!canEdit('manager') || actualPhase > 3} className={`w-4 h-4 text-indigo-600 ${!canEdit('manager') && formData.mgr_accept_short_time === 'yes' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-medium text-sm ${!canEdit('manager') && formData.mgr_accept_short_time === 'yes' ? 'text-indigo-900 font-bold' : 'text-slate-700'}`}>受け入れ可能 (配慮事項に対応できる)</span></label>
+                                                                    <label className={`flex items-center gap-2 p-2 rounded border transition-colors ${!canEdit('manager') && formData.mgr_accept_short_time === 'no' ? 'bg-indigo-100 border-indigo-400 shadow-sm' : !canEdit('manager') ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-indigo-50 cursor-pointer'}`}><input type="radio" name="mgr_accept_short_time" value="no" checked={formData.mgr_accept_short_time === 'no'} onChange={handleInputChange} disabled={!canEdit('manager') || actualPhase > 3} className={`w-4 h-4 text-indigo-600 ${!canEdit('manager') && formData.mgr_accept_short_time === 'no' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-medium text-sm ${!canEdit('manager') && formData.mgr_accept_short_time === 'no' ? 'text-indigo-900 font-bold' : 'text-slate-700'}`}>受け入れ困難 (現場の体制的に厳しい)</span></label>
                                                                 </div>
                                                             </div>
                                                             <div className={`border rounded-lg p-6 shadow-sm ${canEdit('ohp') && actualPhase === 3 ? 'bg-white border-yellow-300' : 'bg-slate-50 border-slate-200 opacity-80'}`}>
                                                                 <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2"><HeartPulse className="w-5 h-5 text-red-500"/> 専門職回答: 主治医意見の妥当性確認</h4>
                                                                 <div className="flex flex-col gap-3 mb-6">
-                                                                    <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="ohp_medical_opinion_check" value="agree" checked={formData.ohp_medical_opinion_check === 'agree'} onChange={handleInputChange} disabled={!canEdit('ohp') || actualPhase > 3} className="w-4 h-4 text-red-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">同意する (主治医の復帰可意見は妥当)</span></label>
-                                                                    <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="ohp_medical_opinion_check" value="pending" checked={formData.ohp_medical_opinion_check === 'pending'} onChange={handleInputChange} disabled={!canEdit('ohp') || actualPhase > 3} className="w-4 h-4 text-red-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">保留 (主治医との連携・追加情報収集が必要)</span></label>
-                                                                    <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="ohp_medical_opinion_check" value="disagree" checked={formData.ohp_medical_opinion_check === 'disagree'} onChange={handleInputChange} disabled={!canEdit('ohp') || actualPhase > 3} className="w-4 h-4 text-red-600 disabled:opacity-50"/><span className="text-slate-700 font-medium text-sm">否認 (まだ復帰できる状態ではない)</span></label>
+                                                                    <label className={`flex items-center gap-2 p-2 rounded border transition-colors ${!canEdit('ohp') && formData.ohp_medical_opinion_check === 'agree' ? 'bg-red-100 border-red-400 shadow-sm' : !canEdit('ohp') ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-red-50 cursor-pointer'}`}><input type="radio" name="ohp_medical_opinion_check" value="agree" checked={formData.ohp_medical_opinion_check === 'agree'} onChange={handleInputChange} disabled={!canEdit('ohp') || actualPhase > 3} className={`w-4 h-4 text-red-600 ${!canEdit('ohp') && formData.ohp_medical_opinion_check === 'agree' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-medium text-sm ${!canEdit('ohp') && formData.ohp_medical_opinion_check === 'agree' ? 'text-red-900 font-bold' : 'text-slate-700'}`}>同意する (主治医の復帰可意見は妥当)</span></label>
+                                                                    <label className={`flex items-center gap-2 p-2 rounded border transition-colors ${!canEdit('ohp') && formData.ohp_medical_opinion_check === 'pending' ? 'bg-red-100 border-red-400 shadow-sm' : !canEdit('ohp') ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-red-50 cursor-pointer'}`}><input type="radio" name="ohp_medical_opinion_check" value="pending" checked={formData.ohp_medical_opinion_check === 'pending'} onChange={handleInputChange} disabled={!canEdit('ohp') || actualPhase > 3} className={`w-4 h-4 text-red-600 ${!canEdit('ohp') && formData.ohp_medical_opinion_check === 'pending' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-medium text-sm ${!canEdit('ohp') && formData.ohp_medical_opinion_check === 'pending' ? 'text-red-900 font-bold' : 'text-slate-700'}`}>保留 (主治医との連携・追加情報収集が必要)</span></label>
+                                                                    <label className={`flex items-center gap-2 p-2 rounded border transition-colors ${!canEdit('ohp') && formData.ohp_medical_opinion_check === 'disagree' ? 'bg-red-100 border-red-400 shadow-sm' : !canEdit('ohp') ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-red-50 cursor-pointer'}`}><input type="radio" name="ohp_medical_opinion_check" value="disagree" checked={formData.ohp_medical_opinion_check === 'disagree'} onChange={handleInputChange} disabled={!canEdit('ohp') || actualPhase > 3} className={`w-4 h-4 text-red-600 ${!canEdit('ohp') && formData.ohp_medical_opinion_check === 'disagree' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-medium text-sm ${!canEdit('ohp') && formData.ohp_medical_opinion_check === 'disagree' ? 'text-red-900 font-bold' : 'text-slate-700'}`}>否認 (まだ復帰できる状態ではない)</span></label>
                                                                 </div>
                                                                 <h4 className="font-bold text-slate-800 mb-2 flex items-center gap-2 border-t border-slate-200 pt-4"><CheckCircle className="w-5 h-5 text-purple-600"/> 産業医: 就業上の措置に関する最終判定</h4>
                                                                 <div className="flex flex-col gap-3">
-                                                                    <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="doctor_final_judgment" value="normal" checked={formData.doctor_final_judgment === 'normal'} onChange={handleInputChange} disabled={!canEdit('ohp') || actualPhase > 3} className="w-4 h-4 text-purple-600 disabled:opacity-50"/><span className="text-slate-700 font-bold text-sm">① 通常就業可 (制限・配慮なし)</span></label>
-                                                                    <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="doctor_final_judgment" value="restricted" checked={formData.doctor_final_judgment === 'restricted'} onChange={handleInputChange} disabled={!canEdit('ohp') || actualPhase > 3} className="w-4 h-4 text-purple-600 disabled:opacity-50"/><span className="text-slate-700 font-bold text-sm">② 就業制限・配慮が必要 (条件付き就業可)</span></label>
-                                                                    <label className="flex items-center gap-2 cursor-pointer"><input type="radio" name="doctor_final_judgment" value="impossible" checked={formData.doctor_final_judgment === 'impossible'} onChange={handleInputChange} disabled={!canEdit('ohp') || actualPhase > 3} className="w-4 h-4 text-purple-600 disabled:opacity-50"/><span className="text-slate-700 font-bold text-sm text-red-600">③ 就業不可 (療養継続)</span></label>
+                                                                    <label className={`flex items-center gap-2 p-2 rounded border transition-colors ${!canEdit('ohp') && formData.doctor_final_judgment === 'normal' ? 'bg-purple-100 border-purple-400 shadow-sm' : !canEdit('ohp') ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-purple-50 cursor-pointer'}`}><input type="radio" name="doctor_final_judgment" value="normal" checked={formData.doctor_final_judgment === 'normal'} onChange={handleInputChange} disabled={!canEdit('ohp') || actualPhase > 3} className={`w-4 h-4 text-purple-600 ${!canEdit('ohp') && formData.doctor_final_judgment === 'normal' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('ohp') && formData.doctor_final_judgment === 'normal' ? 'text-purple-900' : 'text-slate-700'}`}>① 通常就業可 (制限・配慮なし)</span></label>
+                                                                    <label className={`flex items-center gap-2 p-2 rounded border transition-colors ${!canEdit('ohp') && formData.doctor_final_judgment === 'restricted' ? 'bg-purple-100 border-purple-400 shadow-sm' : !canEdit('ohp') ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-purple-50 cursor-pointer'}`}><input type="radio" name="doctor_final_judgment" value="restricted" checked={formData.doctor_final_judgment === 'restricted'} onChange={handleInputChange} disabled={!canEdit('ohp') || actualPhase > 3} className={`w-4 h-4 text-purple-600 ${!canEdit('ohp') && formData.doctor_final_judgment === 'restricted' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('ohp') && formData.doctor_final_judgment === 'restricted' ? 'text-purple-900' : 'text-slate-700'}`}>② 就業制限・配慮が必要 (条件付き就業可)</span></label>
+                                                                    <label className={`flex items-center gap-2 p-2 rounded border transition-colors ${!canEdit('ohp') && formData.doctor_final_judgment === 'impossible' ? 'bg-purple-100 border-purple-400 shadow-sm' : !canEdit('ohp') ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-purple-50 cursor-pointer'}`}><input type="radio" name="doctor_final_judgment" value="impossible" checked={formData.doctor_final_judgment === 'impossible'} onChange={handleInputChange} disabled={!canEdit('ohp') || actualPhase > 3} className={`w-4 h-4 text-purple-600 ${!canEdit('ohp') && formData.doctor_final_judgment === 'impossible' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('ohp') && formData.doctor_final_judgment === 'impossible' ? 'text-red-700' : 'text-red-500'}`}>③ 就業不可 (療養継続)</span></label>
                                                                 </div>
                                                             </div>
                                                         </>
@@ -1283,10 +1244,17 @@
                                                 )}
                                             </div>
                                         )}
+                                        
+                                        {isAdmin && actualPhase > 3 && (
+                                            <div className="mt-8 p-4 bg-red-50 border border-red-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in-up">
+                                                <div className="flex items-center gap-3"><RotateCcw className="w-6 h-6 text-red-600" /><div><h4 className="font-bold text-red-800 text-sm">管理者メニュー: ステータスの差し戻し</h4><p className="text-xs text-red-600 mt-1">現在の実際の進捗は「Phase {actualPhase}」ですが、現在表示中の「Phase 3」に強制的に巻き戻しますか？</p></div></div>
+                                                <button onClick={() => revertPhase(3)} className="whitespace-nowrap px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-sm transition-colors text-sm">Phase 3 に戻す</button>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
-                                {/* Phase 4 */}
+                                {}
                                 {currentPhase === 4 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">Phase Ⅲ</span> 就労支援期 (フォローシート)</h2>
@@ -1305,7 +1273,7 @@
                                                             <div className="text-sm font-bold text-blue-800 mb-3 flex items-center gap-1"><User className="w-4 h-4"/>本人評価</div>
                                                             <div className="flex justify-between px-2">
                                                                 {[1, 2, 3, 4, 5].map(score => (
-                                                                    <label key={`emp_${q.id}_${score}`} className="flex flex-col items-center gap-1 cursor-pointer"><input type="radio" name={`emp_${q.id}`} value={score} checked={String(formData[`emp_${q.id}`]) === String(score)} onChange={handleInputChange} disabled={!canEditEmp4} className="w-5 h-5 text-blue-600 focus:ring-blue-500 disabled:opacity-50"/><span className="text-xs text-slate-600 font-medium">{score}</span></label>
+                                                                    <label key={`emp_${q.id}_${score}`} className="flex flex-col items-center gap-1 cursor-pointer"><input type="radio" name={`emp_${q.id}`} value={score} checked={String(formData[`emp_${q.id}`]) === String(score)} onChange={handleInputChange} disabled={!canEditEmp4} className="w-5 h-5 text-blue-600 focus:ring-blue-500 disabled:opacity-50"/><span className={`text-xs font-medium ${!canEditEmp4 && String(formData[`emp_${q.id}`]) === String(score) ? 'text-blue-800 font-bold' : 'text-slate-600'}`}>{score}</span></label>
                                                                 ))}
                                                             </div>
                                                         </div>
@@ -1313,7 +1281,7 @@
                                                             <div className="text-sm font-bold text-emerald-800 mb-3 flex items-center gap-1"><Briefcase className="w-4 h-4"/>職制評価</div>
                                                             <div className="flex justify-between px-2">
                                                                 {[1, 2, 3, 4, 5].map(score => (
-                                                                    <label key={`mgr_${q.id}_${score}`} className="flex flex-col items-center gap-1 cursor-pointer"><input type="radio" name={`mgr_${q.id}`} value={score} checked={String(formData[`mgr_${q.id}`]) === String(score)} onChange={handleInputChange} disabled={!canEditMgr4} className="w-5 h-5 text-emerald-600 focus:ring-emerald-500 disabled:opacity-50"/><span className="text-xs text-slate-600 font-medium">{score}</span></label>
+                                                                    <label key={`mgr_${q.id}_${score}`} className="flex flex-col items-center gap-1 cursor-pointer"><input type="radio" name={`mgr_${q.id}`} value={score} checked={String(formData[`mgr_${q.id}`]) === String(score)} onChange={handleInputChange} disabled={!canEditMgr4} className="w-5 h-5 text-emerald-600 focus:ring-emerald-500 disabled:opacity-50"/><span className={`text-xs font-medium ${!canEditMgr4 && String(formData[`mgr_${q.id}`]) === String(score) ? 'text-emerald-800 font-bold' : 'text-slate-600'}`}>{score}</span></label>
                                                                 ))}
                                                             </div>
                                                         </div>
@@ -1322,8 +1290,8 @@
                                             ))}
                                             
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-                                                <div><label className="block text-sm font-bold text-blue-800 mb-2 flex items-center gap-1"><User className="w-4 h-4"/>本人の気になっている点・相談</label><textarea name="emp_comment" value={formData.emp_comment || ''} onChange={handleInputChange} disabled={!canEditEmp4} className={`w-full p-3 border rounded-md h-32 ${canEditEmp4 ? 'bg-white border-blue-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none' : 'bg-slate-100 border-slate-200 text-slate-500'}`}></textarea></div>
-                                                <div><label className="block text-sm font-bold text-emerald-800 mb-2 flex items-center gap-1"><Briefcase className="w-4 h-4"/>職制の気になっている点・相談</label><textarea name="mgr_comment" value={formData.mgr_comment || ''} onChange={handleInputChange} disabled={!canEditMgr4} className={`w-full p-3 border rounded-md h-32 ${canEditMgr4 ? 'bg-white border-emerald-300 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none' : 'bg-slate-100 border-slate-200 text-slate-500'}`}></textarea></div>
+                                                <div><label className="block text-sm font-bold text-blue-800 mb-2 flex items-center gap-1"><User className="w-4 h-4"/>本人の気になっている点・相談</label><textarea name="emp_comment" value={formData.emp_comment || ''} onChange={handleInputChange} disabled={!canEditEmp4} className={`w-full p-3 border rounded-md h-32 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${!canEditEmp4 && formData.emp_comment ? 'bg-blue-50 border-blue-200 text-blue-900 font-medium' : !canEditEmp4 ? 'bg-slate-100 border-slate-200 text-slate-500' : 'bg-white border-blue-300 focus:border-blue-500'}`}></textarea></div>
+                                                <div><label className="block text-sm font-bold text-emerald-800 mb-2 flex items-center gap-1"><Briefcase className="w-4 h-4"/>職制の気になっている点・相談</label><textarea name="mgr_comment" value={formData.mgr_comment || ''} onChange={handleInputChange} disabled={!canEditMgr4} className={`w-full p-3 border rounded-md h-32 text-sm outline-none focus:ring-2 focus:ring-emerald-500 ${!canEditMgr4 && formData.mgr_comment ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-medium' : !canEditMgr4 ? 'bg-slate-100 border-slate-200 text-slate-500' : 'bg-white border-emerald-300 focus:border-emerald-500'}`}></textarea></div>
                                             </div>
 
                                             {actualPhase === 4 && (canEdit('employee') || canEdit('manager') || canEdit('ohp') || isAdmin) && (
@@ -1335,10 +1303,16 @@
                                                 </div>
                                             )}
                                         </div>
+                                        
+                                        {isAdmin && actualPhase > 4 && (
+                                            <div className="mt-8 p-4 bg-red-50 border border-red-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-fade-in-up">
+                                                <div className="flex items-center gap-3"><RotateCcw className="w-6 h-6 text-red-600" /><div><h4 className="font-bold text-red-800 text-sm">管理者メニュー: ステータスの差し戻し</h4><p className="text-xs text-red-600 mt-1">現在の実際の進捗は「完了」ですが、現在表示中の「Phase 4」に強制的に巻き戻しますか？</p></div></div>
+                                                <button onClick={() => revertPhase(4)} className="whitespace-nowrap px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg shadow-sm transition-colors text-sm">Phase 4 に戻す</button>
+                                            </div>
+                                        )}
                                     </div>
                                 )}
 
-                                {/* Phase 5 (完了) */}
                                 {actualPhase === 5 && currentPhase === 5 && (
                                     <div className="bg-white p-12 rounded-xl shadow-sm border border-slate-200 text-center animate-fade-in-up">
                                         <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100 mb-6"><CheckCircle className="w-10 h-10 text-green-600" /></div>
@@ -1348,7 +1322,6 @@
                                     </div>
                                 )}
 
-                                {/* 専門職用 非公開メモ */}
                                 {(isAdmin || currentRole === 'ohp') && (
                                     <div className="mt-8 bg-amber-50 rounded-xl p-6 shadow-sm border border-amber-200 border-l-4 border-l-amber-500 animate-fade-in-up">
                                         <h3 className="text-amber-900 font-bold mb-2 flex items-center gap-2"><Lock className="w-5 h-5 text-amber-600" /> 専門職専用 対応履歴 / 面談メモ（非公開）</h3>
