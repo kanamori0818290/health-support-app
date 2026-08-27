@@ -37,7 +37,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail, Search } from 'lucide-react';
+        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail, Search, Calendar } from 'lucide-react';
         
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendEmailVerification } from 'firebase/auth';
@@ -107,6 +107,10 @@
 
             const [showCreateCaseModal, setShowCreateCaseModal] = useState(false);
             const [newCaseData, setNewCaseData] = useState({ empId: '', name: '', department: '' });
+
+            // 条件付復帰の配慮事項入力用モーダル
+            const [showConditionModal, setShowConditionModal] = useState(false);
+            const [conditionText, setConditionText] = useState('');
 
             const actualPhase = formData.phase || 0;
 
@@ -298,11 +302,7 @@
                 };
                 
                 if (!isDemoMode) {
-                    try {
-                        await setDoc(doc(db, "cases", saveId), initialData);
-                    } catch(error) {
-                        console.error(error);
-                    }
+                    try { await setDoc(doc(db, "cases", saveId), initialData); } catch(error) { console.error(error); }
                 } else {
                     setCases([...cases, initialData]);
                 }
@@ -327,9 +327,9 @@
                     setCases([
                         { id: 'd1', empId: '10001', name: '山田 太郎', department: '営業部', phase: 0, symptom: '腰痛', absence_duration: 'over_1week' },
                         { id: 'd2', empId: '10002', name: '佐藤 花子', department: '総務部', phase: 1, symptom: '適応障害', q_request_ohp: 'yes' },
-                        { id: 'd3', empId: '10003', name: '鈴木 一郎', department: '製造部', phase: 2, mgr_safety_concern: 'yes', mgr_need_care: 'yes', emp_impression: '体調がすぐれず、通院を続けています。', mgr_q0_2: '部品の組み立て作業' },
+                        { id: 'd3', empId: '10003', name: '鈴木 一郎', department: '製造部', phase: 2, escalate_to_doctor: true, interview_date: '2026-09-01' },
                         { id: 'd4', empId: '10004', name: '高橋 健太', department: '開発部', phase: 3, report_health: '安定しています', report_desire: 'prepare' },
-                        { id: 'd5', empId: '10005', name: '伊藤 美咲', department: '人事部', phase: 4, emp_q1: '4', mgr_q1: '3' },
+                        { id: 'd5', empId: '10005', name: '伊藤 美咲', department: '人事部', phase: 4, emp_q1: '4', mgr_q1: '3', condition_text: '残業は月10時間まで。深夜業務禁止。' },
                     ]);
                     setUsersList([
                         { id: 'u1', empId: '10001', name: '山田 太郎', email: 'yamada@demo.com', role: 'employee' },
@@ -421,7 +421,7 @@
                 };
 
                 // 本人回答からの強制フラグ(ポイント化)
-                if (formData.emp_q0_2 === '2') addReason('主治医から就業制限あり', 10, '本人回答');
+                if (formData.emp_q0_2 === '2') addReason('主治医から就業制限あり', 5, '本人回答');
                 if (formData.emp_q0_1 === '4') addReason('復職可能と言われていない', 15, '本人回答');
                 if (formData.emp_q1_2 === '4' || formData.emp_q1_3 === '3' || formData.emp_q1_3 === '4') addReason('勤務継続に「難しい・不安」がある', 5, '本人回答');
                 if (formData.emp_q3_2 === '4' || formData.emp_q3_3 === '4') addReason('睡眠が不安定・不足している', 5, '本人回答');
@@ -440,7 +440,7 @@
                 if (formData.mgr_q4c_1 === '3') addReason('交替勤務をすぐ再開する必要がある', 5, '職制評価');
                 if (formData.mgr_q5_4 === '2') addReason('職場として受入れに強い懸念がある', 10, '職制評価');
                 if (formData.mgr_q5_5 === '2') addReason('職制が保健師相談を希望している', 3, '職制評価');
-                if (formData.mgr_q5_5 === '3') addReason('職制が産業医相談を希望している', 5, '職制評価');
+                if (formData.mgr_q5_5 === '3') addReason('職制が産業医相談を希望している', 5, '職制評価'); // 10 -> 5に変更
 
                 let level = 0;
                 if (score >= 15) level = 3; 
@@ -449,6 +449,15 @@
                 else level = 0;
                 
                 return { score, level, reasons };
+            };
+
+            const renderStatus = (c) => {
+                if (c.phase === 5) return <span className="bg-green-100 text-green-800 text-xs px-3 py-1 rounded-full font-bold border border-green-200">完了</span>;
+                if (c.phase === 2) {
+                    if (c.interview_date) return <span className="bg-amber-100 text-amber-800 text-xs px-3 py-1 rounded-full font-bold border border-amber-300">面談予定: {c.interview_date}</span>;
+                    else if (c.escalate_to_doctor) return <span className="bg-red-100 text-red-800 text-xs px-3 py-1 rounded-full font-bold border border-red-200">産業医判定待ち</span>;
+                }
+                return <span className="bg-blue-100 text-blue-800 text-xs px-3 py-1 rounded-full font-bold border border-blue-200">{PHASES[c.phase || 0]?.title}</span>;
             };
 
             if (!isLoggedIn) {
@@ -703,6 +712,19 @@
                             </div>
                         </div>
                     )}
+                    {showConditionModal && (
+                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
+                            <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-md w-full animate-fade-in-up border border-slate-200">
+                                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><Briefcase className="w-5 h-5 text-orange-500"/> 就業上の配慮・条件の入力</h3>
+                                <p className="text-sm text-slate-500 mb-4">条件付復帰にあたり、本人および職制に遵守させる配慮事項（残業制限、業務内容の制限など）を記載してください。この内容はPhase Ⅲ（フォロー期）で常に表示されます。</p>
+                                <textarea value={conditionText} onChange={(e) => setConditionText(e.target.value)} placeholder="例: 残業は月10時間まで。重量物の運搬は不可。" className="w-full p-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-orange-500 outline-none bg-slate-50 h-32 mb-4"></textarea>
+                                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                                    <button type="button" onClick={() => setShowConditionModal(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl">キャンセル</button>
+                                    <button type="button" onClick={() => { saveData({ phase: 4, condition_text: conditionText, escalate_to_doctor: false }); setShowConditionModal(false); setConditionText(''); }} className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white font-bold rounded-xl shadow-sm">条件を確定してPhase Ⅲへ</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                     {confirmDialog.isOpen && (
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full animate-fade-in-up border border-slate-200">
@@ -758,7 +780,7 @@
                                                         {cases.map(c => (
                                                             <tr key={c.id} className="hover:bg-blue-50 transition-colors">
                                                                 <td className="p-4 text-slate-600">{c.empId || '未入力'}</td><td className="p-4 font-bold text-slate-800">{c.name || '未入力'}</td><td className="p-4 text-slate-600 hidden sm:table-cell">{c.department || '-'}</td>
-                                                                <td className="p-4"><span className="bg-blue-100 text-blue-800 text-xs px-3 py-1 rounded-full font-bold border border-blue-200">{c.phase === 5 ? '完了' : PHASES[c.phase || 0]?.title}</span></td>
+                                                                <td className="p-4">{renderStatus(c)}</td>
                                                                 <td className="p-4 text-center">
                                                                     <div className="flex justify-center gap-2">
                                                                         <button onClick={() => openCase(c)} className="bg-white border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-4 py-1.5 rounded-md text-sm font-bold shadow-sm transition-colors">詳細を開く</button>
@@ -826,7 +848,6 @@
                                     </div>
                                 </div>
 
-                                {/* Status Bar */}
                                 <div className="mb-10">
                                     <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                                         <Clock className="w-5 h-5 text-slate-500" /> 
@@ -853,7 +874,6 @@
                                     </div>
                                 </div>
 
-                                {/* Phase 0 */}
                                 {currentPhase === 0 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><FileText className="w-6 h-6 text-blue-600" /> Phase 0: 発生報告フォーム</h2>
@@ -1002,7 +1022,6 @@
                                     </div>
                                 )}
 
-                                {/* Phase 1 */}
                                 {currentPhase === 1 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><Briefcase className="w-6 h-6 text-indigo-600" /> Phase 1: 職制評価フォーム</h2>
@@ -1074,7 +1093,6 @@
                                     </div>
                                 )}
 
-                                {/* Phase 2 */}
                                 {currentPhase === 2 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><Activity className="w-6 h-6 text-purple-600" /> Phase 2: 専門職・自動判定</h2>
@@ -1186,17 +1204,46 @@
                                                             <div className="border border-purple-200 rounded-xl p-6 bg-purple-50">
                                                                 <h3 className="font-bold text-purple-900 mb-4 flex items-center gap-2"><Shield className="w-5 h-5"/> 最終ルートの決定（保健師・産業医）</h3>
                                                                 <p className="text-sm text-purple-800 mb-6">上記のサマリーとスコアを参考に、最終的な復帰ルートを決定してください。</p>
-                                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                                    <button onClick={() => saveData({ phase: 4 })} disabled={!canEdit2} className="bg-white border-2 border-green-500 text-green-700 hover:bg-green-500 hover:text-white font-bold py-4 px-4 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
+                                                                
+                                                                {formData.escalate_to_doctor && (
+                                                                    <div className="mb-4 p-4 bg-blue-100 border border-blue-300 text-blue-900 rounded-lg flex items-center gap-3 font-bold text-sm shadow-sm animate-fade-in-up">
+                                                                        <Info className="w-6 h-6 text-blue-600 flex-shrink-0"/>
+                                                                        保健師より産業医への判定依頼（エスカレーション）が出されています。サマリーと非公開メモを確認し、産業医による最終判定をお願いします。
+                                                                    </div>
+                                                                )}
+
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                                                    <button onClick={() => saveData({ phase: 4, escalate_to_doctor: false })} disabled={!canEdit2} className="bg-white border-2 border-green-500 text-green-700 hover:bg-green-500 hover:text-white font-bold py-4 px-4 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
                                                                         <span className="text-lg">A. 通常復帰</span><span className="text-xs font-normal opacity-80 group-hover:opacity-100 text-center">PG導入・面談なし</span>
                                                                     </button>
-                                                                    <button onClick={() => saveData({ phase: 4 })} disabled={!canEdit2} className="bg-white border-2 border-orange-500 text-orange-700 hover:bg-orange-500 hover:text-white font-bold py-4 px-4 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
+                                                                    <button onClick={() => setShowConditionModal(true)} disabled={!canEdit2} className="bg-white border-2 border-orange-500 text-orange-700 hover:bg-orange-500 hover:text-white font-bold py-4 px-4 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
                                                                         <span className="text-lg">B. 条件付復帰</span><span className="text-xs font-normal opacity-80 group-hover:opacity-100 text-center">面談後、配慮付きで復帰<br/>(PGは導入しない)</span>
                                                                     </button>
-                                                                    <button onClick={() => saveData({ phase: 3 })} disabled={!canEdit2} className="bg-purple-600 text-white hover:bg-purple-700 font-bold py-4 px-4 rounded-xl shadow-md transition-all flex flex-col items-center justify-center gap-2 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
+                                                                    <button onClick={() => saveData({ phase: 3, escalate_to_doctor: false })} disabled={!canEdit2} className="bg-purple-600 text-white hover:bg-purple-700 font-bold py-4 px-4 rounded-xl shadow-md transition-all flex flex-col items-center justify-center gap-2 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
                                                                         <span className="text-lg">C. 就業支援PGへ</span><span className="text-xs font-normal text-purple-200 text-center">Phase Ⅰ/Ⅱ を開始</span>
                                                                     </button>
+                                                                    <button onClick={() => saveData({ phase: 2, escalate_to_doctor: true })} disabled={!canEdit2} className="bg-white border-2 border-blue-500 text-blue-700 hover:bg-blue-500 hover:text-white font-bold py-4 px-4 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
+                                                                        <span className="text-lg">D. 産業医へ依頼</span><span className="text-xs font-normal opacity-80 group-hover:opacity-100 text-center">判断を保留し<br/>産業医へパスする</span>
+                                                                    </button>
                                                                 </div>
+
+                                                                {/* 面談日程調整 */}
+                                                                {(isAdmin || canEdit('ohp')) && actualPhase === 2 && (
+                                                                    <div className="mt-6 border border-slate-200 rounded-xl p-4 bg-white flex items-center justify-between gap-4">
+                                                                        <div className="flex items-center gap-3">
+                                                                            <Calendar className="w-5 h-5 text-slate-500" />
+                                                                            <div>
+                                                                                <label className="block text-xs font-bold text-slate-700 mb-1">産業医面談 予定日 (設定するとダッシュボードに反映されます)</label>
+                                                                                <input type="date" value={formData.interview_date || ''} onChange={(e) => saveData({ interview_date: e.target.value })} className="p-1.5 border border-slate-300 rounded bg-slate-50 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+                                                                            </div>
+                                                                        </div>
+                                                                        {formData.interview_date && (
+                                                                            <span className="text-sm font-bold text-amber-600 bg-amber-50 px-3 py-1 rounded-full border border-amber-200">
+                                                                                面談予定: {formData.interview_date}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     );
@@ -1213,7 +1260,6 @@
                                     </div>
                                 )}
 
-                                {/* Phase 3 */}
                                 {currentPhase === 3 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">就業支援PG</span> 療養専念・復帰準備期</h2>
@@ -1317,10 +1363,17 @@
                                     </div>
                                 )}
 
-                                {/* Phase 4 */}
                                 {currentPhase === 4 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">Phase Ⅲ</span> 就労支援期 (フォローシート)</h2>
+                                        
+                                        {formData.condition_text && (
+                                            <div className="bg-orange-50 border-l-4 border-orange-500 p-4 mb-6 rounded-r-lg shadow-sm animate-fade-in-up">
+                                                <h3 className="font-bold text-orange-800 flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5"/> 就業上の配慮・条件（産業医・保健師指示）</h3>
+                                                <p className="text-orange-900 text-sm whitespace-pre-wrap font-medium leading-relaxed">{formData.condition_text}</p>
+                                            </div>
+                                        )}
+
                                         <div className="bg-blue-50 border-l-4 border-blue-500 p-4 mb-8"><p className="text-blue-900 text-sm font-medium">復帰後の面談用のフォローシートです。本人と職制それぞれが客観的に5段階評価を行い、認識のすり合わせを行います。（1: 非常に問題 〜 5: 全く問題ない）</p></div>
 
                                         <div className="space-y-6">
