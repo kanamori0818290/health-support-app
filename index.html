@@ -37,7 +37,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail, AlertCircle, Search } from 'lucide-react';
+        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail, Search } from 'lucide-react';
         
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendEmailVerification } from 'firebase/auth';
@@ -104,6 +104,9 @@
             const [newUserData, setNewUserData] = useState({ empId: '', name: '', email: '', password: '', role: 'employee' });
             const [adminCreateMsg, setAdminCreateMsg] = useState({ type: '', text: '' });
             const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
+
+            const [showCreateCaseModal, setShowCreateCaseModal] = useState(false);
+            const [newCaseData, setNewCaseData] = useState({ empId: '', name: '', department: '' });
 
             const actualPhase = formData.phase || 0;
 
@@ -282,6 +285,33 @@
                 }
             };
 
+            const handleCreateNewCase = async (e) => {
+                e.preventDefault();
+                const saveId = `case_${Date.now()}`;
+                const initialData = {
+                    id: saveId,
+                    empId: newCaseData.empId,
+                    name: newCaseData.name,
+                    department: newCaseData.department,
+                    phase: 0,
+                    createdAt: Date.now()
+                };
+                
+                if (!isDemoMode) {
+                    try {
+                        await setDoc(doc(db, "cases", saveId), initialData);
+                    } catch(error) {
+                        console.error(error);
+                    }
+                } else {
+                    setCases([...cases, initialData]);
+                }
+                
+                setShowCreateCaseModal(false);
+                setNewCaseData({ empId: '', name: '', department: '' });
+                openCase(initialData); 
+            };
+
             const startDemoLogin = (roleId) => {
                 setIsDemoMode(true);
                 setCurrentRole(roleId);
@@ -340,6 +370,14 @@
                         await setDoc(doc(db, "cases", saveId), { ...newData, id: saveId }, { merge: true });
                         if (!newData.id) setFormData(prev => ({ ...prev, id: saveId }));
                     } catch (error) { console.error("保存エラー:", error); }
+                } else {
+                    if (!newData.id) {
+                        const newId = `demo_case_${Date.now()}`;
+                        setFormData(prev => ({ ...prev, id: newId }));
+                    }
+                    if (currentView === 'dashboard') {
+                        setCases(prev => prev.map(c => c.id === newData.id ? newData : c));
+                    }
                 }
             };
 
@@ -354,7 +392,7 @@
             };
 
             const revertPhase = (targetPhase) => {
-                requestConfirm(`進捗を「Phase ${targetPhase}」に強制的に差し戻します。データは保持されます。よろしいですか？`, async () => {
+                requestConfirm(`進捗を「Phase ${targetPhase}」に強制的に差し戻します。よろしいですか？`, async () => {
                     saveData({ phase: targetPhase });
                 });
             };
@@ -365,7 +403,6 @@
                     else { setCases(cases.filter(c => c.id !== caseId)); }
                 });
             };
-            
             const updateUserRole = (targetUserId, targetEmail, newRole) => {
                 if (targetEmail === MASTER_ADMIN_EMAIL && newRole !== 'admin') return;
                 requestConfirm("権限を更新します。よろしいですか？", async () => {
@@ -403,7 +440,7 @@
                 if (formData.mgr_q4c_1 === '3') addReason('交替勤務をすぐ再開する必要がある', 5, '職制評価');
                 if (formData.mgr_q5_4 === '2') addReason('職場として受入れに強い懸念がある', 10, '職制評価');
                 if (formData.mgr_q5_5 === '2') addReason('職制が保健師相談を希望している', 3, '職制評価');
-                if (formData.mgr_q5_5 === '3') addReason('職制が産業医相談を希望している', 10, '職制評価');
+                if (formData.mgr_q5_5 === '3') addReason('職制が産業医相談を希望している', 5, '職制評価');
 
                 let level = 0;
                 if (score >= 15) level = 3; 
@@ -556,7 +593,6 @@
                     </div>
                 </div>
             );
-            
             const renderText = (id, placeholder, disabled, formData, handleInputChange) => {
                 const hasValue = !!formData[id];
                 return (
@@ -650,6 +686,23 @@
                             </div>
                         </div>
                     )}
+                    {showCreateCaseModal && (
+                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
+                            <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-md w-full animate-fade-in-up border border-slate-200">
+                                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2"><FileText className="w-5 h-5 text-blue-600"/> 新規申請の代理作成</h3>
+                                <p className="text-sm text-slate-500 mb-4">対象者の情報を入力し、新しい申請データ（Phase 0）を作成します。</p>
+                                <form onSubmit={handleCreateNewCase} className="space-y-4">
+                                    <div><label className="block text-sm font-bold text-slate-700 mb-1">社員番号</label><input type="text" value={newCaseData.empId} onChange={e => setNewCaseData({...newCaseData, empId: e.target.value})} required className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50" /></div>
+                                    <div><label className="block text-sm font-bold text-slate-700 mb-1">氏名</label><input type="text" value={newCaseData.name} onChange={e => setNewCaseData({...newCaseData, name: e.target.value})} required className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50" /></div>
+                                    <div><label className="block text-sm font-bold text-slate-700 mb-1">所属部署</label><input type="text" value={newCaseData.department} onChange={e => setNewCaseData({...newCaseData, department: e.target.value})} required className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-blue-500 outline-none bg-slate-50" /></div>
+                                    <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-100">
+                                        <button type="button" onClick={() => setShowCreateCaseModal(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl">キャンセル</button>
+                                        <button type="submit" className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-sm">作成して開く</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
                     {confirmDialog.isOpen && (
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full animate-fade-in-up border border-slate-200">
@@ -685,6 +738,14 @@
 
                                 {dashboardTab === 'cases' || !isAdmin ? (
                                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                                        {isAdmin && (
+                                            <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                                                <span className="text-sm font-bold text-slate-600">現在進行中の申請データ</span>
+                                                <button onClick={() => setShowCreateCaseModal(true)} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-sm flex items-center gap-1 transition-colors">
+                                                    <FileText className="w-4 h-4"/> 新規申請を代理作成
+                                                </button>
+                                            </div>
+                                        )}
                                         {cases.length === 0 ? (
                                             <div className="p-8 text-center text-slate-500">現在、対応中のデータはありません。</div>
                                         ) : (
@@ -765,6 +826,7 @@
                                     </div>
                                 </div>
 
+                                {/* Status Bar */}
                                 <div className="mb-10">
                                     <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                                         <Clock className="w-5 h-5 text-slate-500" /> 
@@ -791,7 +853,7 @@
                                     </div>
                                 </div>
 
-                                {}
+                                {/* Phase 0 */}
                                 {currentPhase === 0 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><FileText className="w-6 h-6 text-blue-600" /> Phase 0: 発生報告フォーム</h2>
@@ -940,7 +1002,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* Phase 1 */}
                                 {currentPhase === 1 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><Briefcase className="w-6 h-6 text-indigo-600" /> Phase 1: 職制評価フォーム</h2>
@@ -1012,7 +1074,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* Phase 2 */}
                                 {currentPhase === 2 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><Activity className="w-6 h-6 text-purple-600" /> Phase 2: 専門職・自動判定</h2>
@@ -1151,7 +1213,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* Phase 3 */}
                                 {currentPhase === 3 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">就業支援PG</span> 療養専念・復帰準備期</h2>
@@ -1255,7 +1317,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* Phase 4 */}
                                 {currentPhase === 4 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">Phase Ⅲ</span> 就労支援期 (フォローシート)</h2>
@@ -1314,7 +1376,6 @@
                                     </div>
                                 )}
 
-                                {}
                                 {actualPhase === 5 && currentPhase === 5 && (
                                     <div className="bg-white p-12 rounded-xl shadow-sm border border-slate-200 text-center animate-fade-in-up">
                                         <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100 mb-6"><CheckCircle className="w-10 h-10 text-green-600" /></div>
