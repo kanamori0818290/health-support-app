@@ -354,7 +354,7 @@
             };
 
             const revertPhase = (targetPhase) => {
-                requestConfirm(`進捗を「Phase ${targetPhase}」に強制的に差し戻します。よろしいですか？`, async () => {
+                requestConfirm(`進捗を「Phase ${targetPhase}」に強制的に差し戻します。データは保持されます。よろしいですか？`, async () => {
                     saveData({ phase: targetPhase });
                 });
             };
@@ -365,6 +365,7 @@
                     else { setCases(cases.filter(c => c.id !== caseId)); }
                 });
             };
+            
             const updateUserRole = (targetUserId, targetEmail, newRole) => {
                 if (targetEmail === MASTER_ADMIN_EMAIL && newRole !== 'admin') return;
                 requestConfirm("権限を更新します。よろしいですか？", async () => {
@@ -555,6 +556,7 @@
                     </div>
                 </div>
             );
+            
             const renderText = (id, placeholder, disabled, formData, handleInputChange) => {
                 const hasValue = !!formData[id];
                 return (
@@ -755,7 +757,7 @@
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         {(isAdmin || canEdit('employee')) && (
-                                            <button onClick={resetData} className="text-sm bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-red-200" title="入力データを初期化"><RotateCcw className="w-4 h-4"/><span className="hidden sm:inline">リセット</span></button>
+                                            <button onClick={resetData} className="text-sm bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-red-200" title="入力データを初期化"><RotateCcw className="w-4 h-4"/><span className="hidden sm:inline">⚠️全データ初期化(削除)</span></button>
                                         )}
                                         {currentRole !== 'employee' && (
                                             <button onClick={() => setCurrentView('dashboard')} className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors"><ChevronLeft className="w-4 h-4"/> 一覧へ戻る</button>
@@ -763,7 +765,6 @@
                                     </div>
                                 </div>
 
-                                {}
                                 <div className="mb-10">
                                     <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                                         <Clock className="w-5 h-5 text-slate-500" /> 
@@ -1313,6 +1314,7 @@
                                     </div>
                                 )}
 
+                                {}
                                 {actualPhase === 5 && currentPhase === 5 && (
                                     <div className="bg-white p-12 rounded-xl shadow-sm border border-slate-200 text-center animate-fade-in-up">
                                         <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100 mb-6"><CheckCircle className="w-10 h-10 text-green-600" /></div>
