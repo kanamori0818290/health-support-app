@@ -29,6 +29,18 @@
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
         body { font-family: "Inter", "Noto Sans JP", sans-serif; }
+        
+        /* 印刷専用スタイル */
+        @media print {
+            body { background-color: white !important; color: black !important; }
+            .print\:hidden { display: none !important; }
+            .print\:block { display: block !important; }
+            @page { margin: 15mm; size: A4 portrait; }
+            table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+            th, td { border: 1px solid #333; padding: 10px; text-align: left; font-size: 14px; }
+            th { background-color: #f3f4f6 !important; -webkit-print-color-adjust: exact; width: 30%; }
+        }
+        .print\:block { display: none; } /* 通常時は印刷ビューを隠す */
     </style>
 </head>
 <body class="bg-slate-50 text-slate-800 font-sans">
@@ -37,7 +49,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail, Search, Calendar } from 'lucide-react';
+        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail, AlertCircle, Search, Printer, MessageSquare, Plus } from 'lucide-react';
         
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendEmailVerification } from 'firebase/auth';
@@ -108,9 +120,10 @@
             const [showCreateCaseModal, setShowCreateCaseModal] = useState(false);
             const [newCaseData, setNewCaseData] = useState({ empId: '', name: '', department: '' });
 
-            // 条件付復帰の配慮事項入力用モーダル
             const [showConditionModal, setShowConditionModal] = useState(false);
             const [conditionText, setConditionText] = useState('');
+
+            const [newLogText, setNewLogText] = useState('');
 
             const actualPhase = formData.phase || 0;
 
@@ -298,13 +311,14 @@
                     name: newCaseData.name,
                     department: newCaseData.department,
                     phase: 0,
-                    createdAt: Date.now()
+                    createdAt: Date.now(),
+                    lastUpdatedAt: Date.now()
                 };
                 
                 if (!isDemoMode) {
                     try { await setDoc(doc(db, "cases", saveId), initialData); } catch(error) { console.error(error); }
                 } else {
-                    setCases([...cases, initialData]);
+                    setCases([initialData, ...cases]);
                 }
                 
                 setShowCreateCaseModal(false);
@@ -320,16 +334,19 @@
                 
                 if (roleId === 'employee') {
                     setCurrentView('detail');
-                    setFormData({ id: 'demo_case', empId: '99999', name: 'デモユーザー', department: 'デモ部', phase: 0 });
+                    setFormData({ id: 'demo_case', empId: '99999', name: 'デモユーザー', department: 'デモ部', phase: 0, lastUpdatedAt: Date.now() });
                     setCurrentPhase(0);
                 } else {
                     setCurrentView('dashboard');
+                    const now = Date.now();
+                    const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000); // 7日前（放置アラート用）
+                    
                     setCases([
-                        { id: 'd1', empId: '10001', name: '山田 太郎', department: '営業部', phase: 0, symptom: '腰痛', absence_duration: 'over_1week' },
-                        { id: 'd2', empId: '10002', name: '佐藤 花子', department: '総務部', phase: 1, symptom: '適応障害', q_request_ohp: 'yes' },
-                        { id: 'd3', empId: '10003', name: '鈴木 一郎', department: '製造部', phase: 2, escalate_to_doctor: true, interview_date: '2026-09-01' },
-                        { id: 'd4', empId: '10004', name: '高橋 健太', department: '開発部', phase: 3, report_health: '安定しています', report_desire: 'prepare' },
-                        { id: 'd5', empId: '10005', name: '伊藤 美咲', department: '人事部', phase: 4, emp_q1: '4', mgr_q1: '3', condition_text: '残業は月10時間まで。深夜業務禁止。' },
+                        { id: 'd1', empId: '10001', name: '山田 太郎', department: '営業部', phase: 0, symptom: '腰痛', absence_duration: 'over_1week', lastUpdatedAt: now },
+                        { id: 'd2', empId: '10002', name: '佐藤 花子', department: '総務部', phase: 1, symptom: '適応障害', q_request_ohp: 'yes', lastUpdatedAt: sevenDaysAgo },
+                        { id: 'd3', empId: '10003', name: '鈴木 一郎', department: '製造部', phase: 2, escalate_to_doctor: true, interview_date: '2026-09-01', lastUpdatedAt: now - (2 * 24 * 60 * 60 * 1000) },
+                        { id: 'd4', empId: '10004', name: '高橋 健太', department: '開発部', phase: 3, report_health: '安定しています', report_desire: 'prepare', lastUpdatedAt: now },
+                        { id: 'd5', empId: '10005', name: '伊藤 美咲', department: '人事部', phase: 4, emp_q1: '4', mgr_q1: '3', condition_text: '残業は月10時間まで。深夜業務禁止。', lastUpdatedAt: now },
                     ]);
                     setUsersList([
                         { id: 'u1', empId: '10001', name: '山田 太郎', email: 'yamada@demo.com', role: 'employee' },
@@ -360,7 +377,7 @@
             const isAdmin = currentRole === 'admin';
 
             const saveData = async (extraData = {}) => {
-                const newData = { ...formData, ...extraData };
+                const newData = { ...formData, ...extraData, lastUpdatedAt: Date.now() };
                 setFormData(newData);
                 if (extraData.phase !== undefined) setCurrentPhase(extraData.phase);
 
@@ -381,11 +398,25 @@
                 }
             };
 
+            const handleAddLog = () => {
+                if (!newLogText.trim()) return;
+                const log = {
+                    id: Date.now(),
+                    text: newLogText,
+                    author: currentUser?.name || currentRoleLabel,
+                    role: currentRoleLabel,
+                    date: new Date().toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                };
+                const updatedLogs = [log, ...(formData.contact_logs || [])];
+                saveData({ contact_logs: updatedLogs });
+                setNewLogText('');
+            };
+
             const requestConfirm = (message, action) => { setConfirmDialog({ isOpen: true, message, onConfirm: action }); };
             
             const resetData = () => {
                 requestConfirm("現在入力中のデータを初期化(Phase 0)に戻します。本当によろしいですか？", async () => {
-                    const newData = { id: formData.id, uid: formData.uid, empId: formData.empId, name: formData.name, department: formData.department, phase: 0 };
+                    const newData = { id: formData.id, uid: formData.uid, empId: formData.empId, name: formData.name, department: formData.department, phase: 0, lastUpdatedAt: Date.now() };
                     setFormData(newData); setCurrentPhase(0);
                     if (!isDemoMode && formData.id) await setDoc(doc(db, "cases", formData.id), newData);
                 });
@@ -420,8 +451,8 @@
                     score += points;
                 };
 
-                // 本人回答からの強制フラグ(ポイント化)
-                if (formData.emp_q0_2 === '2') addReason('主治医から就業制限あり', 5, '本人回答');
+                // 本人回答からのフラグ
+                if (formData.emp_q0_2 === '2') addReason('主治医から就業制限あり', 5, '本人回答'); // +5に最適化
                 if (formData.emp_q0_1 === '4') addReason('復職可能と言われていない', 15, '本人回答');
                 if (formData.emp_q1_2 === '4' || formData.emp_q1_3 === '3' || formData.emp_q1_3 === '4') addReason('勤務継続に「難しい・不安」がある', 5, '本人回答');
                 if (formData.emp_q3_2 === '4' || formData.emp_q3_3 === '4') addReason('睡眠が不安定・不足している', 5, '本人回答');
@@ -432,7 +463,7 @@
                 if (formData.emp_q4c_1 === '3' || formData.emp_q4c_2 === '4' || formData.emp_q4c_5 === '3') addReason('交替勤務復帰への強い不安がある', 5, '本人回答');
                 if (formData.emp_q1_4 === '4') addReason('直近の体調が不安定である', 5, '本人回答');
 
-                // 職制回答からの強制フラグ(ポイント化)
+                // 職制回答からのフラグ
                 if (formData.mgr_q2_1 === '3') addReason('業務に安全上の懸念あり(職制評価)', 15, '職制評価');
                 if (formData.mgr_q2_4 === '3') addReason('必要な配慮の実施が現場で困難', 15, '職制評価');
                 if (formData.mgr_q0_3 === '4') addReason('復職後の業務内容が未定', 5, '職制評価');
@@ -440,7 +471,7 @@
                 if (formData.mgr_q4c_1 === '3') addReason('交替勤務をすぐ再開する必要がある', 5, '職制評価');
                 if (formData.mgr_q5_4 === '2') addReason('職場として受入れに強い懸念がある', 10, '職制評価');
                 if (formData.mgr_q5_5 === '2') addReason('職制が保健師相談を希望している', 3, '職制評価');
-                if (formData.mgr_q5_5 === '3') addReason('職制が産業医相談を希望している', 5, '職制評価'); // 10 -> 5に変更
+                if (formData.mgr_q5_5 === '3') addReason('職制が産業医相談を希望している', 5, '職制評価'); // +5に最適化
 
                 let level = 0;
                 if (score >= 15) level = 3; 
@@ -455,9 +486,23 @@
                 if (c.phase === 5) return <span className="bg-green-100 text-green-800 text-xs px-3 py-1 rounded-full font-bold border border-green-200">完了</span>;
                 if (c.phase === 2) {
                     if (c.interview_date) return <span className="bg-amber-100 text-amber-800 text-xs px-3 py-1 rounded-full font-bold border border-amber-300">面談予定: {c.interview_date}</span>;
-                    else if (c.escalate_to_doctor) return <span className="bg-red-100 text-red-800 text-xs px-3 py-1 rounded-full font-bold border border-red-200">産業医判定待ち</span>;
+                    else if (c.escalate_to_doctor) return <span className="bg-purple-100 text-purple-800 text-xs px-3 py-1 rounded-full font-bold border border-purple-200">産業医判定待ち</span>;
                 }
                 return <span className="bg-blue-100 text-blue-800 text-xs px-3 py-1 rounded-full font-bold border border-blue-200">{PHASES[c.phase || 0]?.title}</span>;
+            };
+
+            const renderAlertBadge = (lastUpdatedAt) => {
+                if (!lastUpdatedAt) return null;
+                const diffTime = Date.now() - lastUpdatedAt;
+                const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                if (diffDays >= 5) {
+                    return (
+                        <span className="bg-red-100 text-red-700 text-[10px] px-2 py-0.5 rounded font-bold border border-red-200 flex items-center gap-1 mt-1 w-max">
+                            <AlertCircle className="w-3 h-3"/> 放置警告: {diffDays}日未更新
+                        </span>
+                    );
+                }
+                return null;
             };
 
             if (!isLoggedIn) {
@@ -646,7 +691,7 @@
                 q2: [['mgr_q2_1', 'Q2-1. 復職後の業務に安全上の懸念はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q2_2', 'Q2-2. 予定業務に、事故や災害につながりやすい作業はありますか', ['ない', 'ある', '判断できない', '無回答']], ['mgr_q2_3', 'Q2-3. 体調や集中力の低下が、安全に影響する可能性はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q2_4', 'Q2-4. 安全上必要な配慮や作業制限を実施できますか', ['実施できる', '一部実施できる', '実施困難', '判断できない']], ['mgr_q2_5', 'Q2-5. 復職直後に単独作業を避けるなどの対応は可能ですか', ['可能', '一部可能', '困難', '該当なし']]],
                 q3: [['mgr_q3_1', 'Q3-1. 復職直後から現在の勤務形態に戻すことに不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q3_2', 'Q3-2. 日勤固定など、段階的な復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q3_3', 'Q3-3. 通院や治療継続に必要な勤務配慮は可能ですか', ['可能', '一部可能', '困難', '不明']]],
                 q4a: [['mgr_q4a_1', 'Q4A-1. 復職後の業務は、主に座位で対応可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4a_2', 'Q4A-2. 業務量や納期負荷を一時的に調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']], ['mgr_q4a_3', 'Q4A-3. 会議、電話、対人対応などの負荷を調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']], ['mgr_q4a_4', 'Q4A-4. 復職直後に確認・フォローできる担当者はいますか', ['いる', '一部対応可能', 'いない', '未定']]],
-                q4b: [['mgr_q4b_1', 'Q4B-1. 立ち作業や歩行を減らす配慮は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_2', 'Q4B-2. 重量物、無理な姿勢、階段昇降などを制限できますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_3', 'Q4B-3. 機械操作、工具使用、車両運転などを一時的に制限できますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_4', 'Q4B-4. 復職直後に単独作業を避け、周囲が確認できる体制を取れますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_5', 'Q4B-5. 本人の状態に合わせて作業内容を変更できますか', ['可能', '一部可能', '困難', '判断できない']]],
+                q4b: [['mgr_q4b_1', 'Q4B-1. 立ち作業や歩行を減らす配慮は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_2', 'Q4B-2. 重量物、無理な姿勢、階段昇降などを制限できますか', ['可能', '一部可能', '困难', '該当なし']], ['mgr_q4b_3', 'Q4B-3. 機械操作、工具使用、車両運転などを一時的に制限できますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_4', 'Q4B-4. 復職直後に単独作業を避け、周囲が確認できる体制を取れますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_5', 'Q4B-5. 本人の状態に合わせて作業内容を変更できますか', ['可能', '一部可能', '困難', '判断できない']]],
                 q4c: [['mgr_q4c_1', 'Q4C-1. 復職直後から交替勤務に戻す必要がありますか', ['いいえ', 'できれば戻したい', '必要がある', '判断できない']], ['mgr_q4c_2', 'Q4C-2. 一定期間、日勤固定での復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4c_3', 'Q4C-3. 夜勤回数を一時的に減らすことは可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4c_4', 'Q4C-4. 勤務間インターバルや休息を確保する配慮は可能ですか', ['可能', '一部可能', '困難', '判断できない']], ['mgr_q4c_5', 'Q4C-5. 夜勤中や早朝勤務中に安全確認・フォローできる体制はありますか', ['ある', '一部ある', '不十分', '判断できない']]],
                 q5: [['mgr_q5_1', 'Q5-1. 復職後、本人に定期的に声かけ・確認を行えますか', ['行える', '一部行える', '難しい', '未定']], ['mgr_q5_2', 'Q5-2. 本人が相談しやすい職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']], ['mgr_q5_3', 'Q5-3. 体調不良があった場合、早めに保健師・人事へ相談できますか', ['できる', 'おおむねできる', '難しい', '判断できない']], ['mgr_q5_4', 'Q5-4. 本人の復職について、職場として懸念していることはありますか', ['ない', 'ある', '判断できない', '無回答']], ['mgr_q5_5', 'Q5-5. 復職前に保健師または産業医へ相談したいですか', ['不要', '保健師へ相談したい', '産業医へ相談したい', '判断できない']]]
             };
@@ -673,7 +718,9 @@
             };
 
             return (
-                <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20 relative">
+                <>
+                {/* ---------- 通常のWeb UI (印刷時は非表示) ---------- */}
+                <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20 relative print:hidden">
                     
                     {/* Modals */}
                     {showCreateUserModal && (
@@ -780,7 +827,10 @@
                                                         {cases.map(c => (
                                                             <tr key={c.id} className="hover:bg-blue-50 transition-colors">
                                                                 <td className="p-4 text-slate-600">{c.empId || '未入力'}</td><td className="p-4 font-bold text-slate-800">{c.name || '未入力'}</td><td className="p-4 text-slate-600 hidden sm:table-cell">{c.department || '-'}</td>
-                                                                <td className="p-4">{renderStatus(c)}</td>
+                                                                <td className="p-4 flex flex-col gap-1 items-start">
+                                                                    {renderStatus(c)}
+                                                                    {renderAlertBadge(c.lastUpdatedAt)}
+                                                                </td>
                                                                 <td className="p-4 text-center">
                                                                     <div className="flex justify-center gap-2">
                                                                         <button onClick={() => openCase(c)} className="bg-white border border-blue-600 text-blue-600 hover:bg-blue-600 hover:text-white px-4 py-1.5 rounded-md text-sm font-bold shadow-sm transition-colors">詳細を開く</button>
@@ -840,7 +890,7 @@
                                     </div>
                                     <div className="flex flex-wrap gap-2">
                                         {(isAdmin || canEdit('employee')) && (
-                                            <button onClick={resetData} className="text-sm bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-red-200" title="入力データを初期化"><RotateCcw className="w-4 h-4"/><span className="hidden sm:inline">⚠️全データ初期化(削除)</span></button>
+                                            <button onClick={resetData} className="text-sm bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-red-200" title="入力データを初期化"><RotateCcw className="w-4 h-4"/><span className="hidden sm:inline">リセット</span></button>
                                         )}
                                         {currentRole !== 'employee' && (
                                             <button onClick={() => setCurrentView('dashboard')} className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors"><ChevronLeft className="w-4 h-4"/> 一覧へ戻る</button>
@@ -1365,7 +1415,12 @@
 
                                 {currentPhase === 4 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
-                                        <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">Phase Ⅲ</span> 就労支援期 (フォローシート)</h2>
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 border-b pb-3">
+                                            <h2 className="text-xl font-bold flex items-center gap-2 text-slate-800"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">Phase Ⅲ</span> 就労支援期 (フォローシート)</h2>
+                                            {(isAdmin || canEdit('ohp') || canEdit('manager')) && (
+                                                <button onClick={() => window.print()} className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-sm font-bold shadow flex items-center gap-2 transition-colors"><Printer className="w-4 h-4"/> プランをPDF出力・印刷</button>
+                                            )}
+                                        </div>
                                         
                                         {formData.condition_text && (
                                             <div className="bg-orange-50 border-l-4 border-orange-500 p-4 mb-6 rounded-r-lg shadow-sm animate-fade-in-up">
@@ -1434,22 +1489,104 @@
                                         <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100 mb-6"><CheckCircle className="w-10 h-10 text-green-600" /></div>
                                         <h2 className="text-2xl font-bold text-slate-800 mb-4">就業支援プログラム 完了</h2>
                                         <p className="text-slate-600 mb-8 max-w-lg mx-auto">通常業務への復帰が確認されました。今後のご活躍と、健康の維持をお祈りしております。体調に変化があった場合は、いつでも職制または健康支援センターへご相談ください。</p>
-                                        {currentRole !== 'employee' && <button onClick={() => setCurrentView('dashboard')} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-6 rounded-md shadow-sm transition-colors">ダッシュボードへ戻る</button>}
+                                        <div className="flex justify-center gap-4">
+                                            {currentRole !== 'employee' && <button onClick={() => setCurrentView('dashboard')} className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2 px-6 rounded-md shadow-sm transition-colors">ダッシュボードへ戻る</button>}
+                                            {(isAdmin || canEdit('ohp') || canEdit('manager')) && <button onClick={() => window.print()} className="bg-slate-800 hover:bg-slate-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors"><Printer className="w-4 h-4"/> 支援結果をPDF出力</button>}
+                                        </div>
                                     </div>
                                 )}
 
-                                {(isAdmin || currentRole === 'ohp') && (
-                                    <div className="mt-8 bg-amber-50 rounded-xl p-6 shadow-sm border border-amber-200 border-l-4 border-l-amber-500 animate-fade-in-up">
-                                        <h3 className="text-amber-900 font-bold mb-2 flex items-center gap-2"><Lock className="w-5 h-5 text-amber-600" /> 専門職専用 対応履歴 / 面談メモ（非公開）</h3>
-                                        <p className="text-amber-700 text-xs mb-4">この入力欄は本人および職制（上司）には表示されません。産業保健スタッフ間の情報共有として使用してください。</p>
-                                        <textarea name="ohp_secret_memo" value={formData.ohp_secret_memo || ''} onChange={handleInputChange} placeholder="例: 〇月〇日 本人と面談。睡眠状況は改善傾向にあるが、朝の倦怠感が残っているとのこと。次回〇日に再度面談予定。" className="w-full p-4 border border-amber-300 rounded-md bg-white text-slate-800 h-40 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none placeholder-slate-400 shadow-inner"></textarea>
-                                        <div className="flex justify-end mt-4"><button onClick={() => saveData({})} className="bg-amber-500 hover:bg-amber-600 text-white font-bold py-2 px-6 rounded-md shadow-sm transition-colors">メモを保存</button></div>
+                                {/* コンタクト履歴共有ボード (本人非公開) */}
+                                {currentRole !== 'employee' && (
+                                    <div className="mt-8 bg-slate-100 rounded-xl p-6 shadow-sm border border-slate-300 animate-fade-in-up">
+                                        <h3 className="text-slate-800 font-bold mb-4 flex items-center gap-2"><MessageSquare className="w-5 h-5 text-slate-600"/> 関係者共有 コンタクト履歴・面談メモ <span className="bg-slate-600 text-white text-[10px] px-2 py-0.5 rounded font-bold ml-2">本人非公開</span></h3>
+                                        <p className="text-sm text-slate-600 mb-6">本人への電話連絡の結果や、関係者間の共有事項を時系列で残せます。</p>
+                                        
+                                        <div className="space-y-4 mb-6 max-h-80 overflow-y-auto pr-2">
+                                            {(!formData.contact_logs || formData.contact_logs.length === 0) ? (
+                                                <p className="text-center text-slate-400 text-sm py-4">履歴はまだありません</p>
+                                            ) : (
+                                                formData.contact_logs.map(log => (
+                                                    <div key={log.id} className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-bold text-sm text-slate-800">{log.author}</span>
+                                                                <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded border border-slate-200">{log.role}</span>
+                                                            </div>
+                                                            <span className="text-xs text-slate-400">{log.date}</span>
+                                                        </div>
+                                                        <p className="text-sm text-slate-700 whitespace-pre-wrap">{log.text}</p>
+                                                    </div>
+                                                ))
+                                            )}
+                                        </div>
+
+                                        <div className="bg-white p-3 rounded-lg border border-slate-300 shadow-inner flex flex-col sm:flex-row gap-3">
+                                            <textarea value={newLogText} onChange={(e) => setNewLogText(e.target.value)} placeholder="例: 〇月〇日 本人に電話。体調は安定しているとのこと。" className="w-full p-2 text-sm outline-none resize-none h-12 focus:h-24 transition-all" />
+                                            <button onClick={handleAddLog} disabled={!newLogText.trim()} className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white font-bold py-2 px-6 rounded-md shadow-sm transition-colors flex-shrink-0 flex items-center justify-center gap-1"><Plus className="w-4 h-4"/> 記録</button>
+                                        </div>
                                     </div>
                                 )}
                             </div>
                         )}
                     </main>
                 </div>
+
+                {/* ---------- 印刷専用ビュー (通常時は非表示) ---------- */}
+                <div className="hidden print:block p-8 font-sans text-black">
+                    <h1 className="text-2xl font-black text-center mb-8 border-b-2 border-black pb-4">職場復帰支援プラン（判定・配慮事項 記録）</h1>
+                    
+                    <div className="mb-8">
+                        <h2 className="text-lg font-bold mb-2">1. 対象者情報</h2>
+                        <table>
+                            <tbody>
+                                <tr><th>氏名</th><td>{formData.name || '未入力'}</td><th>社員番号</th><td>{formData.empId || '未入力'}</td></tr>
+                                <tr><th>所属部署</th><td colSpan="3">{formData.department || '未入力'}</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="mb-8">
+                        <h2 className="text-lg font-bold mb-2">2. 産業医による就業上の判定結果</h2>
+                        <div className="p-4 border border-black min-h-[60px] font-bold text-lg">
+                            {formData.doctor_final_judgment === 'normal' ? '① 通常就業可 (制限・配慮なし)' : 
+                             formData.doctor_final_judgment === 'restricted' ? '② 就業制限・配慮が必要 (条件付き就業可)' : 
+                             formData.doctor_final_judgment === 'impossible' ? '③ 就業不可 (療養継続)' : '未判定'}
+                        </div>
+                    </div>
+
+                    <div className="mb-8">
+                        <h2 className="text-lg font-bold mb-2">3. 就業上の配慮・条件（産業医・保健師指示）</h2>
+                        <div className="p-4 border border-black min-h-[120px] whitespace-pre-wrap">
+                            {formData.condition_text || '特になし'}
+                        </div>
+                    </div>
+
+                    <div className="mb-8">
+                        <h2 className="text-lg font-bold mb-2">4. 職場（職制）での受け入れ確認</h2>
+                        <table>
+                            <tbody>
+                                <tr>
+                                    <th>配慮の受け入れ可否</th>
+                                    <td>
+                                        {formData.mgr_accept_short_time === 'yes' ? '受け入れ可能 (配慮事項に対応できる)' : 
+                                         formData.mgr_accept_short_time === 'no' ? '受け入れ困難 (現場の体制的に厳しい)' : '未確認'}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>職制が予定している配慮内容</th>
+                                    <td>{formData.mgr_q6_1 || '未入力'}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="mt-16 text-right">
+                        <p className="mb-2">出力日: {new Date().toLocaleDateString('ja-JP')}</p>
+                        <p className="text-sm text-gray-500">※本書類は要配慮個人情報を含みます。取り扱いには十分注意してください。</p>
+                    </div>
+                </div>
+                </>
             );
         }
 
