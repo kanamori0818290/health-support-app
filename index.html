@@ -529,6 +529,13 @@
                 ));
             };
 
+            const isActive0 = actualPhase === 0; const canEdit0 = canEdit('employee') && isActive0;
+            const isActive1 = actualPhase === 1; const canEdit1 = canEdit('manager') && isActive1;
+            const isActive2 = actualPhase === 2; const canEdit2 = (canEdit('ohp') || isAdmin) && isActive2;
+            const isActive3 = actualPhase === 3; const canEdit3 = canEdit('employee') && isActive3;
+            const isActive4 = actualPhase === 4; const canEditEmp4 = canEdit('employee') && isActive4; const canEditMgr4 = canEdit('manager') && isActive4;
+
+
             if (!isLoggedIn) {
                 return (
                     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
