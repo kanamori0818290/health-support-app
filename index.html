@@ -467,6 +467,33 @@
             };
             const hasEvalGap = checkEvaluationGap();
 
+            // CSVデータ抽出機能
+            const handleExportCSV = () => {
+                let csvContent = "\uFEFF"; // Excelの文字化けを防ぐBOM
+                csvContent += "データ項目,入力値\n";
+                
+                // データをすべてループして出力
+                Object.keys(formData).forEach(key => {
+                    if (key === 'contact_logs') return; // 複雑なログは除外
+                    let val = formData[key] || '';
+                    if (typeof val === 'string') {
+                        val = val.replace(/"/g, '""'); // CSV用のエスケープ処理
+                        if (val.search(/("|,|\n)/g) >= 0) val = `"${val}"`;
+                    }
+                    csvContent += `${key},${val}\n`;
+                });
+
+                const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `data_${formData.empId || 'unknown'}_${formData.name || 'unknown'}.csv`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            };
+
             const renderQ = (id, title, options, disabled, formData, handleInputChange) => (
                 <div key={id} className="flex flex-col p-4 bg-white border border-slate-200 rounded-lg shadow-sm mb-4">
                     <span className="text-slate-700 font-bold mb-3 text-sm leading-relaxed">{title}</span>
@@ -779,6 +806,9 @@
                                         </div>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
+                                        {(isAdmin || canEdit('ohp')) && (
+                                            <button onClick={handleExportCSV} className="text-sm bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-4 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-emerald-200 shadow-sm" title="入力データをCSVファイルとしてダウンロード"><Download className="w-4 h-4"/> データ抽出(CSV)</button>
+                                        )}
                                         {(actualPhase >= 4) && (
                                             <button onClick={() => window.print()} className="text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-indigo-200 shadow-sm"><Printer className="w-4 h-4"/> 復帰プラン印刷(PDF)</button>
                                         )}
@@ -1264,11 +1294,22 @@
                                                             </>
                                                         )}
                                                         {actualPhase === 3 && (canEdit('manager') || canEdit('ohp') || isAdmin) && (
-                                                            <div className="flex justify-between items-center mt-8 pt-6 border-t border-slate-100">
-                                                                <button onClick={() => saveData({})} className="px-6 py-2 border border-slate-300 text-slate-600 rounded-md hover:bg-slate-50 font-medium">途中保存</button>
-                                                                {(isAdmin || canEdit('ohp')) && (
-                                                                    <button onClick={() => setShowConditionModal(true)} className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-3 px-8 rounded-md shadow-sm flex items-center gap-2">判定を確定して 復帰面談・就労支援期 (Phase 4) へ <ChevronRight className="w-5 h-5"/></button>
-                                                                )}
+                                                            <div className="flex justify-between items-center mt-8 pt-6 border-t border-slate-100 flex-wrap gap-4">
+                                                                <button onClick={() => saveData({})} className="px-6 py-2 border border-slate-300 text-slate-600 rounded-md hover:bg-slate-50 font-medium w-full sm:w-auto">途中保存</button>
+                                                                <div className="flex gap-2 w-full sm:w-auto">
+                                                                    {(isAdmin || canEdit('ohp')) && (
+                                                                        <button onClick={() => {
+                                                                            requestConfirm("まだ復帰できる状態にないと判断し、対象者を「療養専念期 (Phase I)」に差し戻しますか？\n\n※生活記録表などのこれまでの入力内容は保持されますが、対象者は再度Phase Iから進め直す必要があります。", () => {
+                                                                                saveData({ pg_step: 1, doctor_final_judgment: '' });
+                                                                            });
+                                                                        }} className="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2 px-4 rounded-md shadow-sm flex items-center gap-2 border border-red-200 transition-colors text-sm">
+                                                                            <RotateCcw className="w-4 h-4"/> 療養専念期(Phase I)へ差し戻す
+                                                                        </button>
+                                                                    )}
+                                                                    {(isAdmin || canEdit('ohp')) && (
+                                                                        <button onClick={() => setShowConditionModal(true)} className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors">判定確定・復帰面談へ <ChevronRight className="w-5 h-5"/></button>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         )}
                                                     </section>
