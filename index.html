@@ -118,7 +118,7 @@
             const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
 
             const actualPhase = formData.phase || 0;
-            const pgStep = formData.pg_step || 1; // 1:本人療養, 2:本人準備, 3:上司確認, 4:専門職判定
+            const pgStep = formData.pg_step || 1; 
 
             useEffect(() => {
                 if (loginAttempts >= 10) {
@@ -366,7 +366,7 @@
                 if (formData.mgr_q4c_1 === '3') addReason('交替勤務をすぐ再開する必要がある', 5, '職制評価');
                 if (formData.mgr_q5_4 === '2') addReason('職場として受入れに強い懸念がある', 10, '職制評価');
                 if (formData.mgr_q5_5 === '2') addReason('職制が保健師相談を希望している', 3, '職制評価');
-                if (formData.mgr_q5_5 === '3') addReason('職制が産業医相談を希望している', 5, '職制評価'); // Reduced from 10 to 5 for operational tuning
+                if (formData.mgr_q5_5 === '3') addReason('職制が産業医相談を希望している', 5, '職制評価'); 
 
                 let level = 0;
                 if (score >= 15) level = 3; else if (score >= 10) level = 2; else if (score >= 3) level = 1; else level = 0;
@@ -414,7 +414,6 @@
                 setShowDoctorInterviewModal(false);
                 setInterviewDates({ date1: '', date2: '', date3: '' });
             };
-
 
             const renderQ = (id, title, options, disabled, formData, handleInputChange) => (
                 <div key={id} className="flex flex-col p-4 bg-white border border-slate-200 rounded-lg shadow-sm mb-4">
@@ -478,11 +477,12 @@
                 ));
             };
 
-            const isActive0 = actualPhase === 0; const canEdit0 = canEdit('employee') && isActive0;
-            const isActive1 = actualPhase === 1; const canEdit1 = canEdit('manager') && isActive1;
-            const isActive2 = actualPhase === 2; const canEdit2 = (canEdit('ohp') || isAdmin) && isActive2;
-            const isActive3 = actualPhase === 3; 
-            const isActive4 = actualPhase === 4; const canEditEmp4 = canEdit('employee') && isActive4; const canEditMgr4 = canEdit('manager') && isActive4;
+            // ✅ 入力欄のロック（グレーアウト）を解除し、担当者であればいつでも修正可能にする
+            const canEdit0 = isAdmin || currentRole === 'employee';
+            const canEdit1 = isAdmin || currentRole === 'manager';
+            const canEdit2 = isAdmin || currentRole === 'ohp';
+            const canEditEmp4 = isAdmin || currentRole === 'employee';
+            const canEditMgr4 = isAdmin || currentRole === 'manager';
 
             if (!isLoggedIn) {
                 return (
@@ -557,7 +557,7 @@
             return (
                 <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20 relative">
                     
-                    {}
+                    {/* Modals */}
                     {showCreateUserModal && (
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-md w-full animate-fade-in-up border border-slate-200">
@@ -626,7 +626,7 @@
                         </div>
                     )}
 
-                    {}
+                    {/* Header */}
                     <header className="bg-blue-900 text-white shadow-md sticky top-0 z-50 print:hidden">
                         <div className="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center flex-wrap gap-4">
                             <div className="flex items-center gap-2"><HeartPulse className="h-6 w-6 text-red-400" /><h1 className="text-xl font-bold tracking-wider">就業支援プログラム ポータル</h1>{isDemoMode && <span className="bg-orange-500 text-white text-[10px] px-2 py-0.5 rounded font-bold ml-2">DEMO</span>}</div>
@@ -638,7 +638,7 @@
                     </header>
 
                     <main className="max-w-5xl mx-auto px-4 py-8 print:hidden">
-                        {}
+                        
                         {currentView === 'dashboard' ? (
                             <div className="animate-fade-in-up">
                                 {isAdmin && (
@@ -765,28 +765,38 @@
                                         <Clock className="w-5 h-5 text-slate-500" /> 
                                         現在のステータス: {actualPhase === 5 ? '完了' : PHASES[actualPhase]?.title}
                                     </h2>
-                                    <div className="relative pt-1">
-                                        <div className="overflow-hidden h-2 mb-4 text-xs flex rounded bg-slate-200">
-                                            <div style={{ width: `${(actualPhase / 5) * 100}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-blue-500 transition-all duration-500"></div>
+                                    <div className="relative pt-8 pb-2 cursor-default">
+                                        {/* プログレスバーの線 */}
+                                        <div className="absolute top-4 left-0 w-full h-2 rounded bg-slate-200 z-0 overflow-hidden">
+                                            <div style={{ width: `${(actualPhase / 5) * 100}%` }} className="h-full bg-blue-500 transition-all duration-500"></div>
                                         </div>
-                                        <div className="flex justify-between text-xs font-medium text-slate-500 px-1 relative">
+                                        <div className="flex justify-between text-xs font-medium text-slate-500 px-1 relative z-10">
                                             {PHASES.map((p) => (
                                                 <div 
                                                     key={p.id} 
-                                                    className={`flex flex-col items-center transition-colors ${actualPhase >= p.id ? 'cursor-pointer hover:text-blue-500' : 'opacity-50 cursor-not-allowed'} ${currentPhase === p.id ? 'text-blue-600 font-bold' : ''}`}
+                                                    className={`flex flex-col items-center transition-colors relative ${actualPhase >= p.id ? 'cursor-pointer hover:text-blue-600' : 'opacity-50 cursor-not-allowed'} ${currentPhase === p.id ? 'text-blue-600 font-bold' : ''}`}
                                                     onClick={() => { if (isAdmin || actualPhase >= p.id) setCurrentPhase(p.id); }}
                                                     title={actualPhase >= p.id ? "クリックでこのフェーズを確認" : "まだ到達していません"}
                                                 >
-                                                    <span className="hidden sm:inline">{p.title}</span><span className="sm:hidden">{p.id}</span>
-                                                    {actualPhase >= p.id && <div className="w-3 h-3 bg-blue-600 rounded-full absolute -top-[23px] border-2 border-white"></div>}
+                                                    {/* クリック判定エリアを拡張 */}
+                                                    <div className="absolute -top-6 w-12 h-12 bg-transparent z-20"></div>
+                                                    <div className={`w-4 h-4 rounded-full absolute -top-5 border-4 border-white shadow-sm z-10 transition-colors ${actualPhase >= p.id ? 'bg-blue-600' : 'bg-slate-300'}`}></div>
+                                                    <span className="hidden sm:inline mt-2">{p.title}</span><span className="sm:hidden mt-2">{p.id}</span>
                                                 </div>
                                             ))}
-                                            <div className={`flex flex-col items-center ${actualPhase === 5 ? 'text-blue-600 font-bold' : 'opacity-50 cursor-not-allowed'}`}>完了</div>
+                                            <div 
+                                                className={`flex flex-col items-center transition-colors relative ${actualPhase >= 5 ? 'cursor-pointer hover:text-blue-600' : 'opacity-50 cursor-not-allowed'} ${currentPhase === 5 ? 'text-blue-600 font-bold' : ''}`}
+                                                onClick={() => { if (isAdmin || actualPhase >= 5) setCurrentPhase(5); }}
+                                            >
+                                                <div className="absolute -top-6 w-12 h-12 bg-transparent z-20"></div>
+                                                <div className={`w-4 h-4 rounded-full absolute -top-5 border-4 border-white shadow-sm z-10 transition-colors ${actualPhase >= 5 ? 'bg-blue-600' : 'bg-slate-300'}`}></div>
+                                                <span className="mt-2">完了</span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                {}
+                                {/* Phase 0 */}
                                 {currentPhase === 0 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><FileText className="w-6 h-6 text-blue-600" /> Phase 0: 発生報告フォーム</h2>
@@ -844,11 +854,17 @@
                                                     </label>
                                                 </div>
 
-                                                {(canEdit0 || (isAdmin && actualPhase === 0)) && (
+                                                {canEdit0 && (
                                                     <div className="flex justify-center mt-8">
-                                                        <button onClick={() => { if (!formData.consent_privacy) { requestConfirm("同意が必要です。", () => {}); return; } saveData({ phase: 1 }); }} className={`font-bold py-3 px-8 rounded-full shadow-md flex items-center gap-2 transition-transform ${formData.consent_privacy ? 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-105' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}>
-                                                            報告を送信して次へ <ChevronRight className="w-5 h-5"/>
-                                                        </button>
+                                                        {actualPhase === 0 ? (
+                                                            <button onClick={() => { if (!formData.consent_privacy) { requestConfirm("同意が必要です。", () => {}); return; } saveData({ phase: 1 }); }} className={`font-bold py-3 px-8 rounded-full shadow-md flex items-center gap-2 transition-transform ${formData.consent_privacy ? 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-105' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}>
+                                                                報告を送信して次へ <ChevronRight className="w-5 h-5"/>
+                                                            </button>
+                                                        ) : (
+                                                            <button onClick={() => saveData({})} className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-8 rounded-full shadow-md flex items-center gap-2 transition-transform hover:scale-105">
+                                                                過去の回答を修正・上書き保存 <Check className="w-5 h-5"/>
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
@@ -856,7 +872,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* Phase 1 */}
                                 {currentPhase === 1 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><Briefcase className="w-6 h-6 text-indigo-600" /> Phase 1: 職制評価フォーム</h2>
@@ -887,11 +903,17 @@
                                                     </div>
                                                 </section>
 
-                                                {(canEdit1 || (isAdmin && actualPhase === 1)) && (
+                                                {canEdit1 && (
                                                     <div className="flex justify-center mt-8">
-                                                        <button onClick={() => saveData({ phase: 2 })} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-full shadow-md flex items-center gap-2 transition-transform hover:scale-105">
-                                                            評価を送信して自動判定へ <Activity className="w-5 h-5"/>
-                                                        </button>
+                                                        {actualPhase === 1 ? (
+                                                            <button onClick={() => saveData({ phase: 2 })} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-full shadow-md flex items-center gap-2 transition-transform hover:scale-105">
+                                                                評価を送信して自動判定へ <Activity className="w-5 h-5"/>
+                                                            </button>
+                                                        ) : (
+                                                            <button onClick={() => saveData({})} className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-3 px-8 rounded-full shadow-md flex items-center gap-2 transition-transform hover:scale-105">
+                                                                過去の回答を修正・上書き保存 <Check className="w-5 h-5"/>
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 )}
                                             </div>
@@ -899,7 +921,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* Phase 2 */}
                                 {currentPhase === 2 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><Activity className="w-6 h-6 text-purple-600" /> Phase 2: 専門職・自動判定</h2>
@@ -977,15 +999,15 @@
                                                                     </div>
                                                                 ) : (
                                                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                                        <button onClick={() => saveData({ phase: 4, doctor_final_judgment: 'normal' })} disabled={!canEdit2 || actualPhase > 2} className="bg-white border-2 border-green-500 text-green-700 hover:bg-green-500 hover:text-white font-bold py-4 px-2 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
+                                                                        <button onClick={() => saveData({ phase: 4, doctor_final_judgment: 'normal' })} disabled={!canEdit2} className="bg-white border-2 border-green-500 text-green-700 hover:bg-green-500 hover:text-white font-bold py-4 px-2 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
                                                                             <span className="text-sm">A. 通常復帰</span><span className="text-[10px] font-normal opacity-80 group-hover:opacity-100 text-center">PG導入・面談なし<br/>1ヶ月後にフォローシート</span>
                                                                         </button>
                                                                         
-                                                                        <button onClick={() => setShowNurseInterviewModal(true)} disabled={!canEdit2 || actualPhase > 2} className="bg-white border-2 border-orange-500 text-orange-700 hover:bg-orange-500 hover:text-white font-bold py-4 px-2 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
+                                                                        <button onClick={() => setShowNurseInterviewModal(true)} disabled={!canEdit2} className="bg-white border-2 border-orange-500 text-orange-700 hover:bg-orange-500 hover:text-white font-bold py-4 px-2 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed">
                                                                             <span className="text-sm">B. 保健師面談</span><span className="text-[10px] font-normal opacity-80 group-hover:opacity-100 text-center">面談希望の通知を発信<br/>(面談後、PG導入か判定)</span>
                                                                         </button>
 
-                                                                        <button onClick={() => setShowDoctorInterviewModal(true)} disabled={!canEdit2 || actualPhase > 2} className="bg-purple-600 text-white hover:bg-purple-700 font-bold py-4 px-2 rounded-xl shadow-md transition-all flex flex-col items-center justify-center gap-2 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
+                                                                        <button onClick={() => setShowDoctorInterviewModal(true)} disabled={!canEdit2} className="bg-purple-600 text-white hover:bg-purple-700 font-bold py-4 px-2 rounded-xl shadow-md transition-all flex flex-col items-center justify-center gap-2 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
                                                                             <span className="text-sm">C. 産業医・5者面談</span><span className="text-[10px] font-normal text-purple-200 text-center">面談希望の通知を発信<br/>(面談後、PG導入か判定)</span>
                                                                         </button>
                                                                     </div>
@@ -999,7 +1021,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* Phase 3 */}
                                 {currentPhase === 3 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">就業支援PG</span> 療養専念・復帰準備期</h2>
@@ -1009,23 +1031,27 @@
                                         ) : (
                                             <div className="space-y-12">
                                                 {/* Phase 3, Step 1: 本人療養 */}
-                                                <section className={`transition-opacity ${pgStep > 1 ? 'opacity-50 grayscale' : ''}`}>
+                                                <section className={`transition-opacity ${pgStep > 1 ? 'opacity-80' : ''}`}>
                                                     <div className="flex justify-between items-center mb-4">
                                                         <h3 className="text-lg font-bold text-slate-700 flex items-center gap-2"><span className="w-2 h-6 bg-blue-500 rounded-full"></span>【Step 1】 療養状況報告 (本人入力)</h3>
                                                         {pgStep > 1 && <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded font-bold flex items-center gap-1"><Check className="w-3 h-3"/> 提出済</span>}
                                                     </div>
                                                     <div className="border border-slate-200 rounded-lg p-6 bg-slate-50 mb-4">
-                                                        <div><label className="block text-sm font-medium text-slate-700 mb-2">最近の健康状態について</label><textarea name="report_health" value={formData.report_health || ''} onChange={handleInputChange} disabled={!canEdit('employee') || pgStep > 1} className={`w-full p-3 border rounded-md h-24 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${(!canEdit('employee') || pgStep > 1) && formData.report_health ? 'bg-blue-50 border-blue-200 text-blue-900 font-medium' : (!canEdit('employee') || pgStep > 1) ? 'bg-slate-100 border-slate-200 text-slate-500' : 'bg-white border-slate-300'}`}></textarea></div>
+                                                        <div><label className="block text-sm font-medium text-slate-700 mb-2">最近の健康状態について</label><textarea name="report_health" value={formData.report_health || ''} onChange={handleInputChange} disabled={!canEdit('employee') && !isAdmin} className={`w-full p-3 border rounded-md h-24 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${(!canEdit('employee') && !isAdmin) && formData.report_health ? 'bg-blue-50 border-blue-200 text-blue-900 font-medium' : (!canEdit('employee') && !isAdmin) ? 'bg-slate-100 border-slate-200 text-slate-500' : 'bg-white border-slate-300'}`}></textarea></div>
                                                     </div>
-                                                    {pgStep === 1 && (canEdit('employee') || isAdmin) && (
+                                                    {(canEdit('employee') || isAdmin) && (
                                                         <div className="flex justify-end mt-4">
-                                                            <button onClick={() => saveData({ pg_step: 2 })} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors">報告を提出して Step 2 へ <ChevronRight className="w-4 h-4"/></button>
+                                                            {pgStep === 1 ? (
+                                                                <button onClick={() => saveData({ pg_step: 2 })} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors">報告を提出して Step 2 へ <ChevronRight className="w-4 h-4"/></button>
+                                                            ) : (
+                                                                <button onClick={() => saveData({})} className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors">内容を修正・保存 <Check className="w-4 h-4"/></button>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </section>
 
                                                 {/* Phase 3, Step 2: 本人準備 */}
-                                                <section className={`border-t-2 border-slate-100 pt-8 transition-opacity ${pgStep > 2 ? 'opacity-50 grayscale' : pgStep < 2 ? 'hidden' : ''}`}>
+                                                <section className={`border-t-2 border-slate-100 pt-8 transition-opacity ${pgStep > 2 ? 'opacity-80' : pgStep < 2 ? 'hidden' : ''}`}>
                                                     <div className="flex justify-between items-center mb-4">
                                                         <h3 className="text-lg font-bold text-slate-700 flex items-center gap-2"><span className="w-2 h-6 bg-emerald-500 rounded-full"></span>【Step 2】 復帰準備・チェックリスト (本人入力)</h3>
                                                         {pgStep > 2 && <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded font-bold flex items-center gap-1"><Check className="w-3 h-3"/> 提出済</span>}
@@ -1043,20 +1069,27 @@
                                                                 {id: 'p2_c6', label: '6. 仕事の負荷に対応した自己管理を行えるよう準備をしている'}, 
                                                                 {id: 'p2_c10_1', label: '10-① 今回の健康問題について振り返りができており、体調が悪化しないための具体的な対策が考えられている'},
                                                                 {id: 'p2_c10_2', label: '10-② 体調に懸念が生じた際には、すみやかに職制や健康支援に相談し、主治医を受診するなどの対応をとることができる'}
-                                                            ].map(item => (
-                                                                <label key={item.id} className={`flex items-start gap-3 p-2 rounded cursor-pointer transition-colors ${(!canEdit('employee') || pgStep > 2) && formData[item.id] ? 'bg-blue-50 border border-blue-200' : (!canEdit('employee') || pgStep > 2) ? 'opacity-60' : 'hover:bg-slate-50'}`}><input type="checkbox" name={item.id} checked={formData[item.id] || false} onChange={handleCheckboxChange} disabled={!canEdit('employee') || pgStep > 2} className="mt-1 w-4 h-4 text-blue-600 rounded border-slate-300 disabled:opacity-50"/><span className={`text-sm leading-tight ${(!canEdit('employee') || pgStep > 2) && formData[item.id] ? 'text-blue-900 font-bold' : 'text-slate-700'}`}>{item.label}</span></label>
-                                                            ))}
+                                                            ].map(item => {
+                                                                const disabledStep2 = !canEdit('employee') && !isAdmin;
+                                                                return (
+                                                                <label key={item.id} className={`flex items-start gap-3 p-2 rounded cursor-pointer transition-colors ${(disabledStep2) && formData[item.id] ? 'bg-blue-50 border border-blue-200' : (disabledStep2) ? 'opacity-60' : 'hover:bg-slate-50'}`}><input type="checkbox" name={item.id} checked={formData[item.id] || false} onChange={handleCheckboxChange} disabled={disabledStep2} className="mt-1 w-4 h-4 text-blue-600 rounded border-slate-300 disabled:opacity-50"/><span className={`text-sm leading-tight ${(disabledStep2) && formData[item.id] ? 'text-blue-900 font-bold' : 'text-slate-700'}`}>{item.label}</span></label>
+                                                                );
+                                                            })}
                                                         </div>
                                                     </div>
-                                                    {pgStep === 2 && (canEdit('employee') || isAdmin) && (
+                                                    {(canEdit('employee') || isAdmin) && (
                                                         <div className="flex justify-end mt-4">
-                                                            <button onClick={() => saveData({ pg_step: 3 })} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors">準備完了を報告し Step 3(上司確認) へ <ChevronRight className="w-4 h-4"/></button>
+                                                            {pgStep === 2 ? (
+                                                                <button onClick={() => saveData({ pg_step: 3 })} className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors">準備完了を報告し Step 3(上司確認) へ <ChevronRight className="w-4 h-4"/></button>
+                                                            ) : (
+                                                                <button onClick={() => saveData({})} className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors">内容を修正・保存 <Check className="w-4 h-4"/></button>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </section>
 
                                                 {/* Phase 3, Step 3: 上司確認 */}
-                                                <section className={`border-t-2 border-slate-100 pt-8 mt-8 transition-opacity ${pgStep > 3 ? 'opacity-50 grayscale' : pgStep < 3 ? 'hidden' : ''}`}>
+                                                <section className={`border-t-2 border-slate-100 pt-8 mt-8 transition-opacity ${pgStep > 3 ? 'opacity-80' : pgStep < 3 ? 'hidden' : ''}`}>
                                                     <div className="flex justify-between items-center mb-4">
                                                         <h3 className="text-lg font-bold text-slate-700 flex items-center gap-2"><span className="w-2 h-6 bg-yellow-500 rounded-full"></span>【Step 3】 復帰直前の受け入れ確認 (職制)</h3>
                                                         {pgStep > 3 && <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded font-bold flex items-center gap-1"><Check className="w-3 h-3"/> 提出済</span>}
@@ -1064,15 +1097,19 @@
                                                     {currentRole === 'employee' ? (
                                                         <div className="bg-slate-50 p-6 rounded-lg border border-slate-200 text-center"><Lock className="w-8 h-8 text-slate-300 mx-auto mb-2"/><p className="text-sm text-slate-500 font-medium">現在、提出された書類をもとに職制（上司）が受け入れ確認を行っています。</p></div>
                                                     ) : (
-                                                        <div className={`border rounded-lg p-6 shadow-sm ${canEdit('manager') && pgStep === 3 ? 'bg-white border-yellow-300' : 'bg-slate-50 border-slate-200'}`}>
+                                                        <div className={`border rounded-lg p-6 shadow-sm ${(canEdit('manager') || isAdmin) && pgStep === 3 ? 'bg-white border-yellow-300' : 'bg-slate-50 border-slate-200'}`}>
                                                             <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Briefcase className="w-5 h-5 text-indigo-600"/> 職制回答: 試し出勤・配慮措置の受け入れ可否</h4>
                                                             <div className="flex flex-col sm:flex-row gap-4">
-                                                                <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('manager') && formData.mgr_accept_short_time === 'yes' ? 'bg-indigo-100 border-indigo-400 shadow-sm' : !canEdit('manager') ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-indigo-50 cursor-pointer'}`}><input type="radio" name="mgr_accept_short_time" value="yes" checked={formData.mgr_accept_short_time === 'yes'} onChange={handleInputChange} disabled={!canEdit('manager') || pgStep > 3} className={`w-5 h-5 text-indigo-600 ${!canEdit('manager') && formData.mgr_accept_short_time === 'yes' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('manager') && formData.mgr_accept_short_time === 'yes' ? 'text-indigo-900' : 'text-slate-700'}`}>受け入れ可能 (復帰に同意する)</span></label>
-                                                                <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('manager') && formData.mgr_accept_short_time === 'no' ? 'bg-indigo-100 border-indigo-400 shadow-sm' : !canEdit('manager') ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-indigo-50 cursor-pointer'}`}><input type="radio" name="mgr_accept_short_time" value="no" checked={formData.mgr_accept_short_time === 'no'} onChange={handleInputChange} disabled={!canEdit('manager') || pgStep > 3} className={`w-5 h-5 text-indigo-600 ${!canEdit('manager') && formData.mgr_accept_short_time === 'no' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('manager') && formData.mgr_accept_short_time === 'no' ? 'text-indigo-900' : 'text-slate-700'}`}>受け入れ困難 (現場の体制的に厳しい)</span></label>
+                                                                <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('manager') && !isAdmin && formData.mgr_accept_short_time === 'yes' ? 'bg-indigo-100 border-indigo-400 shadow-sm' : !canEdit('manager') && !isAdmin ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-indigo-50 cursor-pointer'}`}><input type="radio" name="mgr_accept_short_time" value="yes" checked={formData.mgr_accept_short_time === 'yes'} onChange={handleInputChange} disabled={!canEdit('manager') && !isAdmin} className={`w-5 h-5 text-indigo-600 ${!canEdit('manager') && !isAdmin && formData.mgr_accept_short_time === 'yes' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('manager') && !isAdmin && formData.mgr_accept_short_time === 'yes' ? 'text-indigo-900' : 'text-slate-700'}`}>受け入れ可能 (復帰に同意する)</span></label>
+                                                                <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('manager') && !isAdmin && formData.mgr_accept_short_time === 'no' ? 'bg-indigo-100 border-indigo-400 shadow-sm' : !canEdit('manager') && !isAdmin ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-indigo-50 cursor-pointer'}`}><input type="radio" name="mgr_accept_short_time" value="no" checked={formData.mgr_accept_short_time === 'no'} onChange={handleInputChange} disabled={!canEdit('manager') && !isAdmin} className={`w-5 h-5 text-indigo-600 ${!canEdit('manager') && !isAdmin && formData.mgr_accept_short_time === 'no' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('manager') && !isAdmin && formData.mgr_accept_short_time === 'no' ? 'text-indigo-900' : 'text-slate-700'}`}>受け入れ困難 (現場の体制的に厳しい)</span></label>
                                                             </div>
-                                                            {pgStep === 3 && (canEdit('manager') || isAdmin) && (
+                                                            {(canEdit('manager') || isAdmin) && (
                                                                 <div className="flex justify-end mt-6">
-                                                                    <button onClick={() => saveData({ pg_step: 4 })} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors">回答を送信し Step 4(専門職確認) へ <ChevronRight className="w-4 h-4"/></button>
+                                                                    {pgStep === 3 ? (
+                                                                        <button onClick={() => saveData({ pg_step: 4 })} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors">回答を送信し Step 4(専門職確認) へ <ChevronRight className="w-4 h-4"/></button>
+                                                                    ) : (
+                                                                        <button onClick={() => saveData({})} className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors">内容を修正・保存 <Check className="w-4 h-4"/></button>
+                                                                    )}
                                                                 </div>
                                                             )}
                                                         </div>
@@ -1087,18 +1124,22 @@
                                                     {currentRole === 'employee' || currentRole === 'manager' ? (
                                                         <div className="bg-slate-50 p-6 rounded-lg border border-slate-200 text-center"><Lock className="w-8 h-8 text-slate-300 mx-auto mb-2"/><p className="text-sm text-slate-500 font-medium">現在、すべての報告をもとに専門職（産業医・保健師）が最終の就業判定を行っています。</p></div>
                                                     ) : (
-                                                        <div className={`border rounded-lg p-6 shadow-sm ${canEdit('ohp') && pgStep === 4 ? 'bg-white border-purple-300' : 'bg-slate-50 border-slate-200'}`}>
+                                                        <div className={`border rounded-lg p-6 shadow-sm ${(canEdit('ohp') || isAdmin) && pgStep === 4 ? 'bg-white border-purple-300' : 'bg-slate-50 border-slate-200'}`}>
                                                             <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><CheckCircle className="w-5 h-5 text-purple-600"/> 産業医: 就業上の措置に関する最終判定</h4>
                                                             <div className="flex flex-col gap-3">
-                                                                <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('ohp') && formData.doctor_final_judgment === 'normal' ? 'bg-purple-100 border-purple-400 shadow-sm' : !canEdit('ohp') ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-purple-50 cursor-pointer'}`}><input type="radio" name="doctor_final_judgment" value="normal" checked={formData.doctor_final_judgment === 'normal'} onChange={handleInputChange} disabled={!canEdit('ohp') || pgStep > 4} className={`w-5 h-5 text-purple-600 ${!canEdit('ohp') && formData.doctor_final_judgment === 'normal' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('ohp') && formData.doctor_final_judgment === 'normal' ? 'text-purple-900' : 'text-slate-700'}`}>① 通常就業可 (制限・配慮なし)</span></label>
-                                                                <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('ohp') && formData.doctor_final_judgment === 'restricted' ? 'bg-purple-100 border-purple-400 shadow-sm' : !canEdit('ohp') ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-purple-50 cursor-pointer'}`}><input type="radio" name="doctor_final_judgment" value="restricted" checked={formData.doctor_final_judgment === 'restricted'} onChange={handleInputChange} disabled={!canEdit('ohp') || pgStep > 4} className={`w-5 h-5 text-purple-600 ${!canEdit('ohp') && formData.doctor_final_judgment === 'restricted' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('ohp') && formData.doctor_final_judgment === 'restricted' ? 'text-purple-900' : 'text-slate-700'}`}>② 就業制限・配慮が必要 (条件付き就業可)</span></label>
-                                                                <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('ohp') && formData.doctor_final_judgment === 'impossible' ? 'bg-purple-100 border-purple-400 shadow-sm' : !canEdit('ohp') ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-purple-50 cursor-pointer'}`}><input type="radio" name="doctor_final_judgment" value="impossible" checked={formData.doctor_final_judgment === 'impossible'} onChange={handleInputChange} disabled={!canEdit('ohp') || pgStep > 4} className={`w-5 h-5 text-purple-600 ${!canEdit('ohp') && formData.doctor_final_judgment === 'impossible' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('ohp') && formData.doctor_final_judgment === 'impossible' ? 'text-red-700' : 'text-red-500'}`}>③ 就業不可 (療養継続)</span></label>
+                                                                <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'normal' ? 'bg-purple-100 border-purple-400 shadow-sm' : !canEdit('ohp') && !isAdmin ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-purple-50 cursor-pointer'}`}><input type="radio" name="doctor_final_judgment" value="normal" checked={formData.doctor_final_judgment === 'normal'} onChange={handleInputChange} disabled={!canEdit('ohp') && !isAdmin} className={`w-5 h-5 text-purple-600 ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'normal' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'normal' ? 'text-purple-900' : 'text-slate-700'}`}>① 通常就業可 (制限・配慮なし)</span></label>
+                                                                <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'restricted' ? 'bg-purple-100 border-purple-400 shadow-sm' : !canEdit('ohp') && !isAdmin ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-purple-50 cursor-pointer'}`}><input type="radio" name="doctor_final_judgment" value="restricted" checked={formData.doctor_final_judgment === 'restricted'} onChange={handleInputChange} disabled={!canEdit('ohp') && !isAdmin} className={`w-5 h-5 text-purple-600 ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'restricted' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'restricted' ? 'text-purple-900' : 'text-slate-700'}`}>② 就業制限・配慮が必要 (条件付き就業可)</span></label>
+                                                                <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'impossible' ? 'bg-purple-100 border-purple-400 shadow-sm' : !canEdit('ohp') && !isAdmin ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-purple-50 cursor-pointer'}`}><input type="radio" name="doctor_final_judgment" value="impossible" checked={formData.doctor_final_judgment === 'impossible'} onChange={handleInputChange} disabled={!canEdit('ohp') && !isAdmin} className={`w-5 h-5 text-purple-600 ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'impossible' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'impossible' ? 'text-red-700' : 'text-red-500'}`}>③ 就業不可 (療養継続)</span></label>
                                                             </div>
 
-                                                            {pgStep === 4 && (canEdit('ohp') || isAdmin) && (
+                                                            {(canEdit('ohp') || isAdmin) && (
                                                                 <div className="flex flex-col sm:flex-row justify-between items-center mt-8 pt-6 border-t border-slate-100 gap-4">
                                                                     <button onClick={() => { requestConfirm("まだ復帰できる状態にないと判断し、対象者を「療養専念期 (Step 1)」に差し戻しますか？", () => { saveData({ pg_step: 1, doctor_final_judgment: '' }); }); }} className="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2 px-4 rounded-md shadow-sm flex items-center justify-center gap-2 border border-red-200 transition-colors w-full sm:w-auto"><RotateCcw className="w-4 h-4"/> 療養専念期(Step1)へ差し戻す</button>
-                                                                    <button onClick={() => {if(formData.doctor_final_judgment === 'restricted') setShowConditionModal(true); else saveData({phase: 4});}} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-8 rounded-md shadow-sm flex items-center justify-center gap-2 transition-colors w-full sm:w-auto">判定確定・復帰へ (Phase 4) <ChevronRight className="w-5 h-5"/></button>
+                                                                    {pgStep === 4 ? (
+                                                                        <button onClick={() => {if(formData.doctor_final_judgment === 'restricted') setShowConditionModal(true); else saveData({phase: 4});}} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-8 rounded-md shadow-sm flex items-center justify-center gap-2 transition-colors w-full sm:w-auto">判定確定・復帰へ (Phase 4) <ChevronRight className="w-5 h-5"/></button>
+                                                                    ) : (
+                                                                        <button onClick={() => saveData({})} className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors">内容を修正・保存 <Check className="w-4 h-4"/></button>
+                                                                    )}
                                                                 </div>
                                                             )}
                                                         </div>
@@ -1110,7 +1151,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* Phase 4 */}
                                 {currentPhase === 4 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">Phase 4</span> 就労支援期 (フォローシート)</h2>
@@ -1165,10 +1206,10 @@
                                                 <div><label className="block text-sm font-bold text-emerald-800 mb-2 flex items-center gap-1"><Briefcase className="w-4 h-4"/>職制の気になっている点・相談</label><textarea name="mgr_comment" value={formData.mgr_comment || ''} onChange={handleInputChange} disabled={!canEditMgr4} className={`w-full p-3 border rounded-md h-32 text-sm outline-none focus:ring-2 focus:ring-emerald-500 ${!canEditMgr4 && formData.mgr_comment ? 'bg-emerald-50 border-emerald-200 text-emerald-900 font-medium' : !canEditMgr4 ? 'bg-slate-100 border-slate-200 text-slate-500' : 'bg-white border-emerald-300 focus:border-emerald-500'}`}></textarea></div>
                                             </div>
 
-                                            {actualPhase === 4 && (canEdit('employee') || canEdit('manager') || canEdit('ohp') || isAdmin) && (
+                                            {actualPhase >= 4 && (canEdit('employee') || canEdit('manager') || canEdit('ohp') || isAdmin) && (
                                                 <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-8 pt-6 border-t border-slate-100">
-                                                    <button onClick={() => saveData({})} className="px-6 py-2 border border-slate-300 text-slate-600 rounded-md hover:bg-slate-50 font-medium w-full sm:w-auto">フォローを継続する(途中保存)</button>
-                                                    {(isAdmin || canEdit('manager') || canEdit('ohp')) && (
+                                                    <button onClick={() => saveData({})} className="px-6 py-2 border border-slate-300 text-slate-600 rounded-md hover:bg-slate-50 font-medium w-full sm:w-auto">入力内容を上書き保存</button>
+                                                    {actualPhase === 4 && (isAdmin || canEdit('manager') || canEdit('ohp')) && (
                                                         <button onClick={() => { 
                                                             if(hasEvalGap) { 
                                                                 requestConfirm("評価に乖離があります。保健師へフォロー継続の通知を発信し、プログラムを継続しますか？", () => {
@@ -1188,7 +1229,7 @@
                                     </div>
                                 )}
 
-                                {}
+                                {/* Phase 5 */}
                                 {actualPhase === 5 && currentPhase === 5 && (
                                     <div className="bg-white p-12 rounded-xl shadow-sm border border-slate-200 text-center animate-fade-in-up">
                                         <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100 mb-6"><CheckCircle className="w-10 h-10 text-green-600" /></div>
@@ -1197,7 +1238,7 @@
                                     </div>
                                 )}
                                 
-                                {}
+                                {/* コンタクト履歴 */}
                                 {currentRole !== 'employee' && (
                                     <div className="mt-8 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden animate-fade-in-up">
                                         <div className="bg-slate-100 p-4 border-b border-slate-200">
@@ -1230,7 +1271,7 @@
                         )}
                     </main>
 
-                    {}
+                    {/* PDF出力用非表示レイアウト */}
                     <div className="print-only hidden print:block bg-white text-black p-8 text-sm">
                         <h1 className="text-2xl font-bold text-center border-b-2 border-black pb-4 mb-8">職場復帰支援プラン（判定・配慮事項 記録）</h1>
                         <div className="mb-8">
@@ -1245,7 +1286,7 @@
                         <div className="mb-8">
                             <h2 className="text-lg font-bold mb-2">2. 就業判定結果（産業医・保健師）</h2>
                             <div className="p-4 border border-black min-h-[60px] font-bold text-lg">
-                                {formData.doctor_final_judgment === 'normal' || formData.phase >= 4 && !formData.doctor_final_judgment ? '① 通常就業可 (制限・配慮なし)' : 
+                                {formData.doctor_final_judgment === 'normal' || (formData.phase >= 4 && !formData.doctor_final_judgment) ? '① 通常就業可 (制限・配慮なし)' : 
                                  formData.doctor_final_judgment === 'restricted' ? '② 就業制限・配慮が必要 (条件付き就業可)' : 
                                  formData.doctor_final_judgment === 'impossible' ? '③ 就業不可 (療養継続)' : '未判定'}
                             </div>
@@ -1253,7 +1294,7 @@
                         <div className="mb-8">
                             <h2 className="text-lg font-bold mb-2">3. 就業上の配慮・条件（専門職指示）</h2>
                             <div className="p-4 border border-black min-h-[120px] whitespace-pre-wrap">
-                                {formData.condition_text || (formData.doctor_final_judgment === 'normal' || formData.phase >= 4 && !formData.doctor_final_judgment ? '特になし（通常就業のため制限事項なし）' : '未入力')}
+                                {formData.condition_text || (formData.doctor_final_judgment === 'normal' || (formData.phase >= 4 && !formData.doctor_final_judgment) ? '特になし（通常就業のため制限事項なし）' : '未入力')}
                             </div>
                         </div>
                         <div className="mb-8">
@@ -1265,10 +1306,10 @@
                                         <td className="border border-black p-2">
                                             {formData.mgr_accept_short_time === 'yes' ? '受け入れ可能 (配慮事項に対応できる)' : 
                                              formData.mgr_accept_short_time === 'no' ? '受け入れ困難 (現場の体制的に厳しい)' : 
-                                             formData.doctor_final_judgment === 'normal' || formData.phase >= 4 && !formData.doctor_final_judgment ? '配慮不要（通常就業のため）' : '未確認'}
+                                             formData.doctor_final_judgment === 'normal' || (formData.phase >= 4 && !formData.doctor_final_judgment) ? '配慮不要（通常就業のため）' : '未確認'}
                                         </td>
                                     </tr>
-                                    <tr><th className="border border-black p-2 bg-gray-100">職制が予定している配慮内容</th><td className="border border-black p-2">{formData.mgr_q6_1 || (formData.doctor_final_judgment === 'normal' || formData.phase >= 4 && !formData.doctor_final_judgment ? '配慮不要' : '特になし')}</td></tr>
+                                    <tr><th className="border border-black p-2 bg-gray-100">職制が予定している配慮内容</th><td className="border border-black p-2">{formData.mgr_q6_1 || (formData.doctor_final_judgment === 'normal' || (formData.phase >= 4 && !formData.doctor_final_judgment) ? '配慮不要' : '特になし')}</td></tr>
                                 </tbody>
                             </table>
                         </div>
