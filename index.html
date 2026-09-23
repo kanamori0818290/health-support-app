@@ -45,7 +45,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail, AlertCircle, Search, Calendar, Printer, Download, Send, Play } from 'lucide-react';
+        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail, AlertCircle, Search, Calendar, Printer, Download, Send, Play, Building, Plus } from 'lucide-react';
         
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendEmailVerification } from 'firebase/auth';
@@ -106,6 +106,9 @@
 
             const [dashboardTab, setDashboardTab] = useState('cases'); 
             const [usersList, setUsersList] = useState([]);
+            const [departmentsList, setDepartmentsList] = useState([]); // 部署マスター用
+            const [newDeptName, setNewDeptName] = useState(''); // 新規部署追加用
+
             const [showCreateUserModal, setShowCreateUserModal] = useState(false);
             const [showConditionModal, setShowConditionModal] = useState(false); 
             
@@ -161,16 +164,28 @@
                 return () => unsubscribe();
             }, [isLoggedIn, isDemoMode]);
 
-            // 管理者または保健師にユーザーリスト（上司一覧用）を読み込む
+            // 管理者・保健師向けのユーザー＆部署マスターの読み込み
             useEffect(() => {
-                if (isLoggedIn && (currentRole === 'admin' || currentRole === 'ohp') && !isDemoMode) {
-                    const unsubscribe = onSnapshot(collection(db, "users"), (snapshot) => {
-                        const uData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                        setUsersList(uData);
-                    });
-                    return () => unsubscribe();
+                if (isLoggedIn && !isDemoMode) {
+                    // ユーザー情報の読み込み (Admin or OHP)
+                    if (currentRole === 'admin' || currentRole === 'ohp') {
+                        const unsubUsers = onSnapshot(collection(db, "users"), (snapshot) => {
+                            setUsersList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                        });
+                        return () => unsubUsers();
+                    }
                 }
             }, [isLoggedIn, currentRole, isDemoMode]);
+
+            // 全員（本人含む）が部署マスターを読み込めるようにする
+            useEffect(() => {
+                if (isLoggedIn && !isDemoMode) {
+                    const unsubDepts = onSnapshot(collection(db, "departments"), (snapshot) => {
+                        setDepartmentsList(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a,b) => a.name.localeCompare(b.name, 'ja')));
+                    });
+                    return () => unsubDepts();
+                }
+            }, [isLoggedIn, isDemoMode]);
 
             const executeAuth = async (e) => {
                 e.preventDefault();
@@ -278,7 +293,7 @@
                 setIsDemoMode(true); setCurrentRole(roleId); setCurrentUser({ id: `demo_${roleId}`, name: 'デモユーザー', role: roleId, empId: '99999' }); setIsLoggedIn(true);
                 const now = Date.now();
                 
-                // デモ環境用のマスターユーザー一覧（保健師が上司をアサインできるようにする）
+                // デモ環境用のマスターユーザー＆部署一覧
                 setUsersList([
                     { id: 'u1', empId: '10001', name: '山田 太郎', email: 'yamada@demo.com', role: 'employee' },
                     { id: 'u2', empId: '20001', name: '鈴木 課長', email: 'suzuki@demo.com', role: 'manager' },
@@ -286,9 +301,16 @@
                     { id: 'u3', empId: '30001', name: '田中 産業医', email: 'tanaka@demo.com', role: 'ohp' },
                     { id: 'demo_manager', empId: '99999', name: 'デモ上司（自分）', email: 'mgr@demo.com', role: 'manager' } // 自分自身もリストに追加
                 ]);
+                setDepartmentsList([
+                    { id: 'dept_1', name: '営業部' },
+                    { id: 'dept_2', name: '総務部' },
+                    { id: 'dept_3', name: '製造部' },
+                    { id: 'dept_4', name: '開発部' },
+                    { id: 'dept_5', name: '人事部' },
+                ]);
 
                 if (roleId === 'employee') {
-                    setCurrentView('detail'); setFormData({ id: 'demo_case', empId: '99999', name: 'デモユーザー', department: 'デモ部', phase: 0, lastUpdated: now }); setCurrentPhase(0);
+                    setCurrentView('detail'); setFormData({ id: 'demo_case', empId: '99999', name: 'デモユーザー', department: '営業部', phase: 0, lastUpdated: now }); setCurrentPhase(0);
                 } else {
                     setCurrentView('dashboard');
                     setCases([
@@ -299,6 +321,32 @@
                         { id: 'd5', empId: '10005', name: '伊藤 美咲', department: '人事部', phase: 4, emp_q1: '4', mgr_q1: '2', lastUpdated: now }, 
                     ]);
                 }
+            };
+
+            const handleAddDepartment = async (e) => {
+                e.preventDefault();
+                if (!newDeptName.trim()) return;
+                if (isDemoMode) {
+                    setDepartmentsList([...departmentsList, { id: `dept_${Date.now()}`, name: newDeptName }]);
+                    setNewDeptName('');
+                } else {
+                    try {
+                        const newRef = doc(collection(db, "departments"));
+                        await setDoc(newRef, { id: newRef.id, name: newDeptName });
+                        setNewDeptName('');
+                    } catch (error) { console.error("部署の追加に失敗しました:", error); }
+                }
+            };
+
+            const handleDeleteDepartment = (deptId, deptName) => {
+                requestConfirm(`部署「${deptName}」を削除しますか？`, async () => {
+                    if (isDemoMode) {
+                        setDepartmentsList(departmentsList.filter(d => d.id !== deptId));
+                    } else {
+                        try { await deleteDoc(doc(db, "departments", deptId)); } 
+                        catch (error) { console.error("部署の削除に失敗しました:", error); }
+                    }
+                });
             };
 
             const openCase = (caseData) => { setFormData(caseData); setCurrentPhase(caseData.phase || 0); setCurrentView('detail'); };
@@ -469,7 +517,7 @@
             const mgrQuestions = {
                 q1: [['mgr_q1_1', 'Q1-1. 本人が所定労働時間の勤務を継続できる見込みはありますか', ['ある', 'おおむねある', '少し不安がある', '判断できない']], ['mgr_q1_2', 'Q1-2. 復職直後の業務量を調整できますか', ['調整できる', '一部調整できる', '調整が難しい', '判断できない']], ['mgr_q1_3', 'Q1-3. 残業を制限する必要がある場合、対応できますか', ['対応できる', '一部対応できる', '対応困難', '該当なし']], ['mgr_q1_4', 'Q1-4. 本人の体調変化に気づける職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']]],
                 q2: [['mgr_q2_1', 'Q2-1. 復職後の業務に安全上の懸念はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q2_2', 'Q2-2. 予定業務に、事故や災害につながりやすい作業はありますか', ['ない', 'ある', '判断できない', '無回答']], ['mgr_q2_3', 'Q2-3. 体調や集中力の低下が、安全に影響する可能性はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q2_4', 'Q2-4. 安全上必要な配慮や作業制限を実施できますか', ['実施できる', '一部実施できる', '実施困難', '判断できない']], ['mgr_q2_5', 'Q2-5. 復職直後に単独作業を避けるなどの対応は可能ですか', ['可能', '一部可能', '困難', '該当なし']]],
-                q3: [['mgr_q3_1', 'Q3-1. 復職直後から現在の勤務形態に戻すことに不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q3_2', 'Q3-2. 日勤固定など、段階的な復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q3_3', 'Q3-3. 通院や治療継続に必要な勤務配慮は可能ですか', ['可能', '一部可能', '困难', '不明']]],
+                q3: [['mgr_q3_1', 'Q3-1. 復職直後から現在の勤務形態に戻すことに不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q3_2', 'Q3-2. 日勤固定など、段階的な復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q3_3', 'Q3-3. 通院や治療継続に必要な勤務配慮は可能ですか', ['可能', '一部可能', '困難', '不明']]],
                 q4a: [['mgr_q4a_1', 'Q4A-1. 復職後の業務は、主に座位で対応可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4a_2', 'Q4A-2. 業務量や納期負荷を一時的に調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']], ['mgr_q4a_3', 'Q4A-3. 会議、電話、対人対応などの負荷を調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']], ['mgr_q4a_4', 'Q4A-4. 復職直後に確認・フォローできる担当者はいますか', ['いる', '一部対応可能', 'いない', '未定']]],
                 q4b: [['mgr_q4b_1', 'Q4B-1. 立ち作業や歩行を減らす配慮は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_2', 'Q4B-2. 重量物、無理な姿勢、階段昇降などを制限できますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_3', 'Q4B-3. 機械操作、工具使用、車両運転などを一時的に制限できますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_4', 'Q4B-4. 復職直後に単独作業を避け、周囲が確認できる体制を取れますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_5', 'Q4B-5. 本人の状態に合わせて作業内容を変更できますか', ['可能', '一部可能', '困難', '判断できない']]],
                 q4c: [['mgr_q4c_1', 'Q4C-1. 復職直後から交替勤務に戻す必要がありますか', ['いいえ', 'できれば戻したい', '必要がある', '判断できない']], ['mgr_q4c_2', 'Q4C-2. 一定期間、日勤固定での復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4c_3', 'Q4C-3. 夜勤回数を一時的に減らすことは可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4c_4', 'Q4C-4. 勤務間インターバルや休息を確保する配慮は可能ですか', ['可能', '一部可能', '困難', '判断できない']], ['mgr_q4c_5', 'Q4C-5. 夜勤中や早朝勤務中に安全確認・フォローできる体制はありますか', ['ある', '一部ある', '不十分', '判断できない']]],
@@ -662,9 +710,10 @@
                         {currentView === 'dashboard' ? (
                             <div className="animate-fade-in-up">
                                 {isAdmin && (
-                                    <div className="flex gap-6 mb-6 border-b border-slate-200">
-                                        <button onClick={() => setDashboardTab('cases')} className={`pb-3 px-2 font-bold text-lg flex items-center gap-2 transition-colors ${dashboardTab === 'cases' ? 'text-blue-600 border-b-4 border-blue-600' : 'text-slate-500 hover:text-slate-700'}`}><Briefcase className="w-5 h-5"/> 対応中の従業員一覧</button>
-                                        <button onClick={() => setDashboardTab('users')} className={`pb-3 px-2 font-bold text-lg flex items-center gap-2 transition-colors ${dashboardTab === 'users' ? 'text-blue-600 border-b-4 border-blue-600' : 'text-slate-500 hover:text-slate-700'}`}><Users className="w-5 h-5"/> ユーザー・権限管理</button>
+                                    <div className="flex gap-4 mb-6 border-b border-slate-200 overflow-x-auto pb-1">
+                                        <button onClick={() => setDashboardTab('cases')} className={`pb-3 px-3 font-bold text-sm sm:text-base flex items-center gap-2 transition-colors whitespace-nowrap ${dashboardTab === 'cases' ? 'text-blue-600 border-b-4 border-blue-600' : 'text-slate-500 hover:text-slate-700'}`}><Briefcase className="w-5 h-5"/> 対応中の従業員一覧</button>
+                                        <button onClick={() => setDashboardTab('users')} className={`pb-3 px-3 font-bold text-sm sm:text-base flex items-center gap-2 transition-colors whitespace-nowrap ${dashboardTab === 'users' ? 'text-blue-600 border-b-4 border-blue-600' : 'text-slate-500 hover:text-slate-700'}`}><Users className="w-5 h-5"/> ユーザー・権限管理</button>
+                                        <button onClick={() => setDashboardTab('departments')} className={`pb-3 px-3 font-bold text-sm sm:text-base flex items-center gap-2 transition-colors whitespace-nowrap ${dashboardTab === 'departments' ? 'text-blue-600 border-b-4 border-blue-600' : 'text-slate-500 hover:text-slate-700'}`}><Building className="w-5 h-5"/> 部署マスター管理</button>
                                     </div>
                                 )}
                                 {!isAdmin && <h2 className="text-2xl font-bold mb-6 text-slate-800 flex items-center gap-2"><Briefcase className="w-6 h-6 text-blue-600" /> 対応中の従業員一覧</h2>}
@@ -716,7 +765,7 @@
                                             </div>
                                         )}
                                     </div>
-                                ) : (
+                                ) : dashboardTab === 'users' ? (
                                     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden animate-fade-in-up">
                                         <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                             <div className="text-sm text-slate-600 font-medium flex items-center gap-2"><Info className="w-5 h-5 text-blue-500 flex-shrink-0"/>ここで他のユーザーの権限を変更したり、新規ユーザーを作成できます。</div>
@@ -745,7 +794,49 @@
                                             </table>
                                         </div>
                                     </div>
-                                )}
+                                ) : dashboardTab === 'departments' ? (
+                                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-fade-in-up">
+                                        <div className="lg:col-span-1">
+                                            <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                                                <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-blue-600"/> 新規部署の追加</h3>
+                                                <form onSubmit={handleAddDepartment} className="space-y-4">
+                                                    <div>
+                                                        <label className="block text-sm font-bold text-slate-700 mb-1">部署名</label>
+                                                        <input type="text" value={newDeptName} onChange={(e) => setNewDeptName(e.target.value)} required placeholder="例: 営業第一部" className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                                                    </div>
+                                                    <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 rounded-lg transition-colors shadow-sm">追加する</button>
+                                                </form>
+                                                <div className="mt-4 p-3 bg-blue-50 text-blue-800 text-xs rounded-lg border border-blue-100">
+                                                    追加した部署は、対象者が発生報告を入力する際の「所属部署」プルダウンに反映されます。表記ゆれを防ぐためのマスターデータです。
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="lg:col-span-2">
+                                            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                                                <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                                                    <h3 className="font-bold text-slate-800 flex items-center gap-2"><Building className="w-5 h-5 text-blue-600"/> 登録済み部署一覧</h3>
+                                                    <span className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded font-bold">{departmentsList.length} 件</span>
+                                                </div>
+                                                <div className="overflow-y-auto max-h-[500px]">
+                                                    {departmentsList.length === 0 ? (
+                                                        <div className="p-8 text-center text-slate-500">登録されている部署はありません。</div>
+                                                    ) : (
+                                                        <ul className="divide-y divide-slate-100">
+                                                            {departmentsList.map(dept => (
+                                                                <li key={dept.id} className="p-4 hover:bg-slate-50 flex justify-between items-center transition-colors">
+                                                                    <span className="font-bold text-slate-700">{dept.name}</span>
+                                                                    <button onClick={() => handleDeleteDepartment(dept.id, dept.name)} className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2 rounded-lg transition-colors" title="この部署を削除">
+                                                                        <Trash2 className="w-4 h-4"/>
+                                                                    </button>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : null}
                             </div>
                         ) : (
                             <div className="animate-fade-in-up">
@@ -839,7 +930,16 @@
                                                 <section>
                                                     <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-slate-700"><span className="bg-blue-100 text-blue-800 w-6 h-6 rounded-full flex items-center justify-center text-sm">1</span> 基本情報</h3>
                                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
-                                                        <div><label className="block text-sm font-medium text-slate-700 mb-1">所属部署</label><input type="text" name="department" value={formData.department || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500"/></div>
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-slate-700 mb-1">所属部署</label>
+                                                            {/* 自由記述からプルダウンに変更 */}
+                                                            <select name="department" value={formData.department || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500 bg-white">
+                                                                <option value="">選択してください</option>
+                                                                {departmentsList.map(d => (
+                                                                    <option key={d.id} value={d.name}>{d.name}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
                                                         <div><label className="block text-sm font-medium text-slate-700 mb-1">現在の勤務状況</label><select name="q_absence" value={formData.q_absence || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500"><option value="">選択してください</option><option value="none">休業なし (出勤中)</option><option value="short">4日未満の休業</option><option value="long">1週間以上の長期休業</option></select></div>
                                                     </div>
                                                 </section>
@@ -888,7 +988,7 @@
                                                 {/* 本人提出ボタン */}
                                                 {canEdit0 && !formData.phase0_submitted && actualPhase === 0 && (
                                                     <div className="flex justify-center mt-8">
-                                                        <button onClick={() => { if (!formData.consent_privacy) { requestConfirm("同意が必要です。", () => {}); return; } saveData({ phase0_submitted: true }); }} className={`font-bold py-3 px-8 rounded-full shadow-md flex items-center gap-2 transition-transform ${formData.consent_privacy ? 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-105' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}>
+                                                        <button onClick={() => { if (!formData.consent_privacy) { requestConfirm("同意が必要です。", () => {}); return; } if (!formData.department) { requestConfirm("所属部署を選択してください。", () => {}); return; } saveData({ phase0_submitted: true }); }} className={`font-bold py-3 px-8 rounded-full shadow-md flex items-center gap-2 transition-transform ${formData.consent_privacy && formData.department ? 'bg-blue-600 hover:bg-blue-700 text-white hover:scale-105' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}>
                                                             報告を送信（保健師へ提出） <ChevronRight className="w-5 h-5"/>
                                                         </button>
                                                     </div>
@@ -898,7 +998,7 @@
                                                 {actualPhase === 0 && formData.phase0_submitted && (canEdit('ohp') || isAdmin) && (
                                                     <div className="mt-8 p-6 bg-blue-50 border border-blue-200 rounded-xl shadow-sm animate-fade-in-up">
                                                         <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2"><User className="w-5 h-5"/> 保健師確認・担当上司のアサイン</h3>
-                                                        <p className="text-sm text-blue-800 mb-4">本人の報告内容を確認し、問題がなければ評価を依頼する上司（職制）を選択して Phase 1 へ進めてください。</p>
+                                                        <p className="text-sm text-blue-800 mb-4">本人の報告内容を確認し、問題がなければ評価を依頼する上司（職制）を選択して Step 2 へ進めてください。</p>
                                                         <div className="flex flex-col sm:flex-row gap-4 items-center">
                                                             <select
                                                                 value={formData.assigned_manager_id || ''}
