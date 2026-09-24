@@ -45,7 +45,7 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail, AlertCircle, Search, Calendar, Printer, Download, Send, Play, Building, Plus, Copy } from 'lucide-react';
+        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail, AlertCircle, Search, Calendar, Printer, Download, Send, Play, Building, Plus } from 'lucide-react';
         
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendEmailVerification } from 'firebase/auth';
@@ -117,8 +117,6 @@
             const [interviewDates, setInterviewDates] = useState({ date1: '', date2: '', date3: '' });
             const [notifyEmail, setNotifyEmail] = useState(''); 
 
-            const [emailDraft, setEmailDraft] = useState(null);
-
             const [newUserData, setNewUserData] = useState({ empId: '', name: '', email: '', password: '', role: 'employee', department: '' });
             const [adminCreateMsg, setAdminCreateMsg] = useState({ type: '', text: '' });
             const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
@@ -126,12 +124,10 @@
             const actualPhase = formData.phase || 0;
             const pgStep = formData.pg_step || 1; 
 
-            const copyToClipboard = (text) => {
-                navigator.clipboard.writeText(text).then(() => {
-                    alert("クリップボードにコピーしました！\nお使いの会社用Webメール（Outlook等）に貼り付けて送信してください。");
-                }).catch(err => {
-                    alert("コピーに失敗しました。お手数ですが手動で選択してコピーしてください。");
-                });
+            // 💡 メーラーを起動する関数
+            const openMailClient = (to, subject, body) => {
+                const mailtoLink = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                window.location.href = mailtoLink;
             };
 
             useEffect(() => {
@@ -478,18 +474,12 @@
                 setShowNurseInterviewModal(false);
                 
                 if(notifyEmail) {
-                    setEmailDraft({
-                        to: notifyEmail,
-                        subject: `【就業支援ポータル】保健師面談の調整 (${formData.name}さん)`,
-                        body: `${formData.name} 様の保健師面談の調整依頼が届きました。\n\n第1希望: ${interviewDates.date1}\n第2希望: ${interviewDates.date2}\n第3希望: ${interviewDates.date3}\n\nポータルにログインして詳細を確認してください。`,
-                        onClose: () => {
-                            setInterviewDates({ date1: '', date2: '', date3: '' });
-                            setNotifyEmail('');
-                        }
-                    });
-                } else {
-                    setInterviewDates({ date1: '', date2: '', date3: '' });
+                    const subject = `【就業支援ポータル】保健師面談の調整 (${formData.name}さん)`;
+                    const body = `${formData.name} 様の保健師面談の調整依頼が届きました。\n\n第1希望: ${interviewDates.date1}\n第2希望: ${interviewDates.date2}\n第3希望: ${interviewDates.date3}\n\nポータルにログインして詳細を確認してください。`;
+                    openMailClient(notifyEmail, subject, body);
                 }
+                setInterviewDates({ date1: '', date2: '', date3: '' });
+                setNotifyEmail('');
             };
 
             const submitDoctorInterview = () => {
@@ -499,18 +489,12 @@
                 setShowDoctorInterviewModal(false);
                 
                 if(notifyEmail) {
-                    setEmailDraft({
-                        to: notifyEmail,
-                        subject: `【就業支援ポータル】産業医・5者面談の調整 (${formData.name}さん)`,
-                        body: `${formData.name} 様の産業医・5者面談の調整依頼が届きました。\n\n第1希望: ${interviewDates.date1}\n第2希望: ${interviewDates.date2}\n第3希望: ${interviewDates.date3}\n\nポータルにログインして詳細を確認してください。`,
-                        onClose: () => {
-                            setInterviewDates({ date1: '', date2: '', date3: '' });
-                            setNotifyEmail('');
-                        }
-                    });
-                } else {
-                    setInterviewDates({ date1: '', date2: '', date3: '' });
+                    const subject = `【就業支援ポータル】産業医・5者面談の調整 (${formData.name}さん)`;
+                    const body = `${formData.name} 様の産業医・5者面談の調整依頼が届きました。\n\n第1希望: ${interviewDates.date1}\n第2希望: ${interviewDates.date2}\n第3希望: ${interviewDates.date3}\n\nポータルにログインして詳細を確認してください。`;
+                    openMailClient(notifyEmail, subject, body);
                 }
+                setInterviewDates({ date1: '', date2: '', date3: '' });
+                setNotifyEmail('');
             };
 
             const renderQ = (id, title, options, disabled, formData, handleInputChange) => (
@@ -547,9 +531,9 @@
             const mgrQuestions = {
                 q1: [['mgr_q1_1', 'Q1-1. 本人が所定労働時間の勤務を継続できる見込みはありますか', ['ある', 'おおむねある', '少し不安がある', '判断できない']], ['mgr_q1_2', 'Q1-2. 復職直後の業務量を調整できますか', ['調整できる', '一部調整できる', '調整が難しい', '判断できない']], ['mgr_q1_3', 'Q1-3. 残業を制限する必要がある場合、対応できますか', ['対応できる', '一部対応できる', '対応困難', '該当なし']], ['mgr_q1_4', 'Q1-4. 本人の体調変化に気づける職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']]],
                 q2: [['mgr_q2_1', 'Q2-1. 復職後の業務に安全上の懸念はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q2_2', 'Q2-2. 予定業務に、事故や災害につながりやすい作業はありますか', ['ない', 'ある', '判断できない', '無回答']], ['mgr_q2_3', 'Q2-3. 体調や集中力の低下が、安全に影響する可能性はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q2_4', 'Q2-4. 安全上必要な配慮や作業制限を実施できますか', ['実施できる', '一部実施できる', '実施困難', '判断できない']], ['mgr_q2_5', 'Q2-5. 復職直後に単独作業を避けるなどの対応は可能ですか', ['可能', '一部可能', '困難', '該当なし']]],
-                q3: [['mgr_q3_1', 'Q3-1. 復職直後から現在の勤務形態に戻すことに不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q3_2', 'Q3-2. 日勤固定など、段階的な復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q3_3', 'Q3-3. 通院や治療継続に必要な勤務配慮は可能ですか', ['可能', '一部可能', '困難', '不明']]],
+                q3: [['mgr_q3_1', 'Q3-1. 復職直後から現在の勤務形態に戻すことに不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q3_2', 'Q3-2. 日勤固定など、段階的な復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q3_3', 'Q3-3. 通院や治療継続に必要な勤務配慮は可能ですか', ['可能', '一部可能', '困难', '不明']]],
                 q4a: [['mgr_q4a_1', 'Q4A-1. 復職後の業務は、主に座位で対応可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4a_2', 'Q4A-2. 業務量や納期負荷を一時的に調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']], ['mgr_q4a_3', 'Q4A-3. 会議、電話、対人対応などの負荷を調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']], ['mgr_q4a_4', 'Q4A-4. 復職直後に確認・フォローできる担当者はいますか', ['いる', '一部対応可能', 'いない', '未定']]],
-                q4b: [['mgr_q4b_1', 'Q4B-1. 立ち作業や歩行を減らす配慮は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_2', 'Q4B-2. 重量物、無理な姿勢、階段昇降などを制限できますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_3', 'Q4B-3. 機械操作、工具使用、車両運転などを一時的に制限できますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_4', 'Q4B-4. 復職直後に単独作業を避け、周囲が確認できる体制を取れますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_5', 'Q4B-5. 本人の状態に合わせて作業内容を変更できますか', ['可能', '一部可能', '困難', '判断できない']]],
+                q4b: [['mgr_q4b_1', 'Q4B-1. 立ち作業や歩行を減らす配慮は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_2', 'Q4B-2. 重量物、無理な姿勢、階段昇降などを制限できますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_3', 'Q4B-3. 機械操作、工具使用、車両運転などを一時的に制限できますか', ['可能', '一部可能', '困难', '該当なし']], ['mgr_q4b_4', 'Q4B-4. 復職直後に単独作業を避け、周囲が確認できる体制を取れますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_5', 'Q4B-5. 本人の状態に合わせて作業内容を変更できますか', ['可能', '一部可能', '困難', '判断できない']]],
                 q4c: [['mgr_q4c_1', 'Q4C-1. 復職直後から交替勤務に戻す必要がありますか', ['いいえ', 'できれば戻したい', '必要がある', '判断できない']], ['mgr_q4c_2', 'Q4C-2. 一定期間、日勤固定での復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4c_3', 'Q4C-3. 夜勤回数を一時的に減らすことは可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4c_4', 'Q4C-4. 勤務間インターバルや休息を確保する配慮は可能ですか', ['可能', '一部可能', '困難', '判断できない']], ['mgr_q4c_5', 'Q4C-5. 夜勤中や早朝勤務中に安全確認・フォローできる体制はありますか', ['ある', '一部ある', '不十分', '判断できない']]],
                 q5: [['mgr_q5_1', 'Q5-1. 復職後、本人に定期的に声かけ・確認を行えますか', ['行える', '一部行える', '難しい', '未定']], ['mgr_q5_2', 'Q5-2. 本人が相談しやすい職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']], ['mgr_q5_3', 'Q5-3. 体調不良があった場合、早めに保健師・人事へ相談できますか', ['できる', 'おおむねできる', '難しい', '判断できない']], ['mgr_q5_4', 'Q5-4. 本人の復職について、職場として懸念していることはありますか', ['ない', 'ある', '判断できない', '無回答']], ['mgr_q5_5', 'Q5-5. 復職前に保健師または産業医へ相談したいですか', ['不要', '保健師へ相談したい', '産業医へ相談したい', '判断できない']]]
             };
@@ -655,48 +639,6 @@
                 <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20 relative">
                     
                     {/* Modals */}
-                    {/* コピペ用メール文面モーダル */}
-                    {emailDraft && (
-                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[200] backdrop-blur-sm p-4">
-                            <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-lg w-full animate-fade-in-up border border-slate-200">
-                                <h3 className="text-lg font-bold text-slate-800 mb-2 flex items-center gap-2"><Mail className="w-5 h-5 text-blue-600"/> メール送信用テキストの生成</h3>
-                                <p className="text-sm text-slate-600 mb-4 leading-relaxed">会社のセキュリティ制限を回避するため、以下の文面をコピーして、ご自身の会社用メールソフト（Outlook等）から手動で送信してください。</p>
-                                
-                                <div className="space-y-3 mb-6 bg-slate-50 p-4 rounded-lg border border-slate-200">
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">宛先 (To)</label>
-                                        <div className="flex gap-2">
-                                            <input type="text" readOnly value={emailDraft.to} className="w-full p-2 bg-white border border-slate-200 rounded text-sm outline-none text-slate-700 font-medium" />
-                                            <button onClick={() => copyToClipboard(emailDraft.to)} className="px-3 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1"><Copy className="w-3 h-3"/> コピー</button>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">件名 (Subject)</label>
-                                        <div className="flex gap-2">
-                                            <input type="text" readOnly value={emailDraft.subject} className="w-full p-2 bg-white border border-slate-200 rounded text-sm outline-none text-slate-700 font-medium" />
-                                            <button onClick={() => copyToClipboard(emailDraft.subject)} className="px-3 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1"><Copy className="w-3 h-3"/> コピー</button>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-500 mb-1">本文 (Body)</label>
-                                        <div className="flex gap-2">
-                                            <textarea readOnly value={emailDraft.body} className="w-full p-2 bg-white border border-slate-200 rounded text-sm outline-none h-40 whitespace-pre-wrap text-slate-700 font-medium"></textarea>
-                                            <button onClick={() => copyToClipboard(emailDraft.body)} className="px-3 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded text-xs font-bold whitespace-nowrap transition-colors flex items-center gap-1"><Copy className="w-3 h-3"/> コピー</button>
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <div className="flex justify-end gap-3">
-                                    <button onClick={() => {
-                                        const onCloseAction = emailDraft.onClose;
-                                        setEmailDraft(null);
-                                        if(onCloseAction) onCloseAction();
-                                    }} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-sm transition-colors">確認して閉じる</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
                     {showCreateUserModal && (
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-md w-full animate-fade-in-up border border-slate-200">
@@ -722,7 +664,7 @@
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-lg w-full animate-fade-in-up border border-slate-200">
                                 <h3 className="text-xl font-bold text-orange-600 mb-2 flex items-center gap-2"><Calendar className="w-6 h-6"/> 保健師面談 希望日時の入力</h3>
-                                <p className="text-sm text-slate-600 mb-6">保健師との面談に向けて、希望日時（第1〜第3希望）を入力してください。入力後、通知用のメール文面が作成されます。</p>
+                                <p className="text-sm text-slate-600 mb-6">保健師との面談に向けて、希望日時（第1〜第3希望）を入力してください。入力後、お使いのメールソフトが起動します。</p>
                                 <div className="space-y-4 mb-6">
                                     <div><label className="block text-sm font-bold text-slate-700 mb-1">第1希望日時</label><input type="datetime-local" value={interviewDates.date1} onChange={e => setInterviewDates({...interviewDates, date1: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-orange-500 outline-none" /></div>
                                     <div><label className="block text-sm font-bold text-slate-700 mb-1">第2希望日時</label><input type="datetime-local" value={interviewDates.date2} onChange={e => setInterviewDates({...interviewDates, date2: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-orange-500 outline-none" /></div>
@@ -734,7 +676,7 @@
                                 </div>
                                 <div className="flex justify-end gap-3">
                                     <button onClick={() => setShowNurseInterviewModal(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl">キャンセル</button>
-                                    <button onClick={submitNurseInterview} className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-sm flex items-center gap-2"><FileText className="w-4 h-4"/> 通知文を作成</button>
+                                    <button onClick={submitNurseInterview} className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-sm flex items-center gap-2"><Send className="w-4 h-4"/> 通知文を作成してメールを起動</button>
                                 </div>
                             </div>
                         </div>
@@ -744,7 +686,7 @@
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-lg w-full animate-fade-in-up border border-slate-200">
                                 <h3 className="text-xl font-bold text-purple-600 mb-2 flex items-center gap-2"><Calendar className="w-6 h-6"/> 産業医・5者面談 希望日時の入力</h3>
-                                <p className="text-sm text-slate-600 mb-6">産業医および関係者を交えた5者面談に向けて、希望日時を入力してください。入力後、通知用のメール文面が作成されます。</p>
+                                <p className="text-sm text-slate-600 mb-6">産業医および関係者を交えた5者面談に向けて、希望日時を入力してください。入力後、お使いのメールソフトが起動します。</p>
                                 <div className="space-y-4 mb-6">
                                     <div><label className="block text-sm font-bold text-slate-700 mb-1">第1希望日</label><input type="date" value={interviewDates.date1} onChange={e => setInterviewDates({...interviewDates, date1: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" /></div>
                                     <div><label className="block text-sm font-bold text-slate-700 mb-1">第2希望日</label><input type="date" value={interviewDates.date2} onChange={e => setInterviewDates({...interviewDates, date2: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" /></div>
@@ -756,7 +698,7 @@
                                 </div>
                                 <div className="flex justify-end gap-3">
                                     <button onClick={() => setShowDoctorInterviewModal(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl">キャンセル</button>
-                                    <button onClick={submitDoctorInterview} className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-sm flex items-center gap-2"><FileText className="w-4 h-4"/> 通知文を作成</button>
+                                    <button onClick={submitDoctorInterview} className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-sm flex items-center gap-2"><Send className="w-4 h-4"/> 通知文を作成してメールを起動</button>
                                 </div>
                             </div>
                         </div>
@@ -1018,7 +960,6 @@
                                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200">
                                                         <div>
                                                             <label className="block text-sm font-medium text-slate-700 mb-1">所属部署</label>
-                                                            {/* 自由記述からプルダウンに変更 */}
                                                             <select name="department" value={formData.department || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500 bg-white">
                                                                 <option value="">選択してください</option>
                                                                 {departmentsList.map(d => (
@@ -1080,11 +1021,11 @@
                                                     </div>
                                                 )}
 
-                                                {/* 保健師アサインUI */}
+                                                {/* 保健師アサインUI + メールアドレス直接入力機能 */}
                                                 {actualPhase === 0 && formData.phase0_submitted && (canEdit('ohp') || isAdmin) && (
                                                     <div className="mt-8 p-6 bg-blue-50 border border-blue-200 rounded-xl shadow-sm animate-fade-in-up">
                                                         <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2"><User className="w-5 h-5"/> 保健師確認・担当上司のアサイン</h3>
-                                                        <p className="text-sm text-blue-800 mb-4">本人の報告内容を確認し、問題がなければ評価を依頼する上司（職制）を選択して Step 2 へ進めてください。送信用のメール文面が作成されます。</p>
+                                                        <p className="text-sm text-blue-800 mb-4">本人の報告内容を確認し、問題がなければ評価を依頼する上司（職制）を選択して Step 2 へ進めてください。お使いのメールソフトが起動します。</p>
                                                         
                                                         <div className="flex flex-col gap-3 mb-4">
                                                             <div className="flex flex-col sm:flex-row gap-4 items-center">
@@ -1128,17 +1069,14 @@
                                                                     saveData({ phase: 1 });
                                                                     
                                                                     if(formData.manager_email) {
-                                                                        setEmailDraft({
-                                                                            to: formData.manager_email,
-                                                                            subject: `【就業支援ポータル】${formData.name}さんの職制評価依頼`,
-                                                                            body: `職制担当者 様\n\n就業支援ポータルより、${formData.name}さんの「職制評価」の入力依頼が届いています。\nポータルにログインし、「Step 2: 職制評価フォーム」より現在の状況と受け入れ体制についてご回答をお願いいたします。\n\n▼ポータルURL\n[システムのURLをここに記載]`,
-                                                                            onClose: () => {}
-                                                                        });
+                                                                        const subject = `【就業支援ポータル】${formData.name}さんの職制評価依頼`;
+                                                                        const body = `職制担当者 様\n\n就業支援ポータルより、${formData.name}さんの「職制評価」の入力依頼が届いています。\nポータルにログインし、「Step 2: 職制評価フォーム」より現在の状況と受け入れ体制についてご回答をお願いいたします。\n\n▼ポータルURL\n[システムのURLをここに記載]`;
+                                                                        openMailClient(formData.manager_email, subject, body);
                                                                     }
                                                                 }}
                                                                 className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-10 rounded-full shadow-md flex items-center justify-center gap-2 transition-colors whitespace-nowrap"
                                                             >
-                                                                この上司に評価を依頼する（通知文を作成） <FileText className="w-4 h-4"/>
+                                                                この上司に評価を依頼する（メールを起動） <Send className="w-4 h-4"/>
                                                             </button>
                                                         </div>
                                                         <div className="mt-4 text-center">
