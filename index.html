@@ -117,8 +117,9 @@
             const [interviewDates, setInterviewDates] = useState({ date1: '', date2: '', date3: '' });
             const [notifyEmail, setNotifyEmail] = useState(''); 
 
-            // 💡 コピペ用メール文面モーダルのステート
             const [emailDraft, setEmailDraft] = useState(null);
+            // マトリックス表示用
+            const [showMatrixModal, setShowMatrixModal] = useState(false);
 
             const [newUserData, setNewUserData] = useState({ empId: '', name: '', email: '', password: '', role: 'employee', department: '' });
             const [adminCreateMsg, setAdminCreateMsg] = useState({ type: '', text: '' });
@@ -127,7 +128,7 @@
             const actualPhase = formData.phase || 0;
             const pgStep = formData.pg_step || 1; 
 
-            // 💡 メーラーを起動する関数 (会社PC用)
+            // メーラーを起動する関数 (会社PC用)
             const openMailClient = (to, subject, body) => {
                 const mailtoLink = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
                 window.location.href = mailtoLink;
@@ -136,7 +137,7 @@
             // クリップボードへコピーする機能 (個人スマホ用)
             const copyToClipboard = (text) => {
                 navigator.clipboard.writeText(text).then(() => {
-                    alert("クリップボードにコピーしました！\nお使いの会社用Webメール（Outlook等）に貼り付けて送信してください。");
+                    alert("クリップボードにコピーしました！\nお使いのWebメールアプリ等に貼り付けて送信してください。");
                 }).catch(err => {
                     alert("コピーに失敗しました。お手数ですが手動で選択してコピーしてください。");
                 });
@@ -547,10 +548,10 @@
 
             const mgrQuestions = {
                 q1: [['mgr_q1_1', 'Q1-1. 本人が所定労働時間の勤務を継続できる見込みはありますか', ['ある', 'おおむねある', '少し不安がある', '判断できない']], ['mgr_q1_2', 'Q1-2. 復職直後の業務量を調整できますか', ['調整できる', '一部調整できる', '調整が難しい', '判断できない']], ['mgr_q1_3', 'Q1-3. 残業を制限する必要がある場合、対応できますか', ['対応できる', '一部対応できる', '対応困難', '該当なし']], ['mgr_q1_4', 'Q1-4. 本人の体調変化に気づける職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']]],
-                q2: [['mgr_q2_1', 'Q2-1. 復職後の業務に安全上の懸念はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q2_2', 'Q2-2. 予定業務に、事故や災害につながりやすい作業はありますか', ['ない', 'ある', '判断できない', '無回答']], ['mgr_q2_3', 'Q2-3. 体調や集中力の低下が、安全に影響する可能性はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q2_4', 'Q2-4. 安全上必要な配慮や作業制限を実施できますか', ['実施できる', '一部実施できる', '実施困難', '判断できない']], ['mgr_q2_5', 'Q2-5. 復職直後に単独作業を避けるなどの対応は可能ですか', ['可能', '一部可能', '困难', '該当なし']]],
-                q3: [['mgr_q3_1', 'Q3-1. 復職直後から現在の勤務形態に戻すことに不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q3_2', 'Q3-2. 日勤固定など、段階的な復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q3_3', 'Q3-3. 通院や治療継続に必要な勤務配慮は可能ですか', ['可能', '一部可能', '困難', '不明']]],
+                q2: [['mgr_q2_1', 'Q2-1. 復職後の業務に安全上の懸念はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q2_2', 'Q2-2. 予定業務に、事故や災害につながりやすい作業はありますか', ['ない', 'ある', '判断できない', '無回答']], ['mgr_q2_3', 'Q2-3. 体調や集中力の低下が、安全に影響する可能性はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q2_4', 'Q2-4. 安全上必要な配慮や作業制限を実施できますか', ['実施できる', '一部実施できる', '実施困難', '判断できない']], ['mgr_q2_5', 'Q2-5. 復職直後に単独作業を避けるなどの対応は可能ですか', ['可能', '一部可能', '困難', '該当なし']]],
+                q3: [['mgr_q3_1', 'Q3-1. 復職直後から現在の勤務形態に戻すことに不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['mgr_q3_2', 'Q3-2. 日勤固定など、段階的な復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q3_3', 'Q3-3. 通院や治療継続に必要な勤務配慮は可能ですか', ['可能', '一部可能', '困难', '不明']]],
                 q4a: [['mgr_q4a_1', 'Q4A-1. 復職後の業務は、主に座位で対応可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4a_2', 'Q4A-2. 業務量や納期負荷を一時的に調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']], ['mgr_q4a_3', 'Q4A-3. 会議、電話、対人対応などの負荷を調整できますか', ['調整できる', '一部調整できる', '調整困難', '該当なし']], ['mgr_q4a_4', 'Q4A-4. 復職直後に確認・フォローできる担当者はいますか', ['いる', '一部対応可能', 'いない', '未定']]],
-                q4b: [['mgr_q4b_1', 'Q4B-1. 立ち作業や歩行を減らす配慮は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_2', 'Q4B-2. 重量物、無理な姿勢、階段昇降などを制限できますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_3', 'Q4B-3. 機械操作、工具使用、車両運転などを一時的に制限できますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_4', 'Q4B-4. 復職直後に単独作業を避け、周囲が確認できる体制を取れますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_5', 'Q4B-5. 本人の状態に合わせて作業内容を変更できますか', ['可能', '一部可能', '困難', '判断できない']]],
+                q4b: [['mgr_q4b_1', 'Q4B-1. 立ち作業や歩行を減らす配慮は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_2', 'Q4B-2. 重量物、無理な姿勢、階段昇降などを制限できますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_3', 'Q4B-3. 機械操作、工具使用、車両運転などを一時的に制限できますか', ['可能', '一部可能', '困难', '該当なし']], ['mgr_q4b_4', 'Q4B-4. 復職直後に単独作業を避け、周囲が確認できる体制を取れますか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4b_5', 'Q4B-5. 本人の状態に合わせて作業内容を変更できますか', ['可能', '一部可能', '困難', '判断できない']]],
                 q4c: [['mgr_q4c_1', 'Q4C-1. 復職直後から交替勤務に戻す必要がありますか', ['いいえ', 'できれば戻したい', '必要がある', '判断できない']], ['mgr_q4c_2', 'Q4C-2. 一定期間、日勤固定での復帰は可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4c_3', 'Q4C-3. 夜勤回数を一時的に減らすことは可能ですか', ['可能', '一部可能', '困難', '該当なし']], ['mgr_q4c_4', 'Q4C-4. 勤務間インターバルや休息を確保する配慮は可能ですか', ['可能', '一部可能', '困難', '判断できない']], ['mgr_q4c_5', 'Q4C-5. 夜勤中や早朝勤務中に安全確認・フォローできる体制はありますか', ['ある', '一部ある', '不十分', '判断できない']]],
                 q5: [['mgr_q5_1', 'Q5-1. 復職後、本人に定期的に声かけ・確認を行えますか', ['行える', '一部行える', '難しい', '未定']], ['mgr_q5_2', 'Q5-2. 本人が相談しやすい職場体制がありますか', ['ある', '一部ある', '不十分', '判断できない']], ['mgr_q5_3', 'Q5-3. 体調不良があった場合、早めに保健師・人事へ相談できますか', ['できる', 'おおむねできる', '難しい', '判断できない']], ['mgr_q5_4', 'Q5-4. 本人の復職について、職場として懸念していることはありますか', ['ない', 'ある', '判断できない', '無回答']], ['mgr_q5_5', 'Q5-5. 復職前に保健師または産業医へ相談したいですか', ['不要', '保健師へ相談したい', '産業医へ相談したい', '判断できない']]]
             };
@@ -698,6 +699,70 @@
                         </div>
                     )}
 
+                    {/* 判定マトリックスモーダル */}
+                    {showMatrixModal && (
+                        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[300] backdrop-blur-sm p-4">
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col animate-fade-in-up overflow-hidden border border-slate-200">
+                                <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-slate-50">
+                                    <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Activity className="w-6 h-6 text-blue-600"/> 復職判定・自動スコアリング マトリックス</h3>
+                                    <button onClick={() => setShowMatrixModal(false)} className="text-slate-500 hover:bg-slate-200 p-2 rounded-full transition-colors">✕</button>
+                                </div>
+                                <div className="p-6 overflow-y-auto flex-grow text-sm text-slate-700 space-y-8">
+                                    <section>
+                                        <h4 className="font-bold text-lg text-blue-800 mb-3 border-l-4 border-blue-600 pl-3">1. 総合リスクレベルと推奨ルート判定</h4>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full border-collapse border border-slate-300 text-left whitespace-nowrap">
+                                                <thead className="bg-slate-100">
+                                                    <tr><th className="p-3 border border-slate-300">合計スコア</th><th className="p-3 border border-slate-300">判定レベル</th><th className="p-3 border border-slate-300">リスク評価</th><th className="p-3 border border-slate-300">推奨される復職ルート</th></tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr><td className="p-3 border border-slate-300 font-bold">0 pt</td><td className="p-3 border border-slate-300 font-bold text-green-600">Level 0</td><td className="p-3 border border-slate-300">リスクなし</td><td className="p-3 border border-slate-300 font-bold bg-green-50">A. 通常復帰</td></tr>
+                                                    <tr><td className="p-3 border border-slate-300 font-bold">3〜9 pt</td><td className="p-3 border border-slate-300 font-bold text-orange-500">Level 1</td><td className="p-3 border border-slate-300">軽度リスク</td><td className="p-3 border border-slate-300 font-bold bg-orange-50">B. 保健師面談</td></tr>
+                                                    <tr><td className="p-3 border border-slate-300 font-bold">10〜14 pt</td><td className="p-3 border border-slate-300 font-bold text-purple-600">Level 2</td><td className="p-3 border border-slate-300">中等度リスク</td><td className="p-3 border border-slate-300 font-bold bg-purple-50">C. 産業医・5者面談</td></tr>
+                                                    <tr><td className="p-3 border border-slate-300 font-bold">15 pt 以上</td><td className="p-3 border border-slate-300 font-bold text-red-600">Level 3</td><td className="p-3 border border-slate-300">高度リスク</td><td className="p-3 border border-slate-300 font-bold bg-red-50">C. 産業医・5者面談 (必須)</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </section>
+                                    <section>
+                                        <h4 className="font-bold text-lg text-blue-800 mb-3 border-l-4 border-blue-600 pl-3">2. スコア加点マトリックス（判定基準）</h4>
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full border-collapse border border-slate-300 text-left text-xs">
+                                                <thead className="bg-slate-100">
+                                                    <tr><th className="p-2 border border-slate-300">出所</th><th className="p-2 border border-slate-300">設問</th><th className="p-2 border border-slate-300">加点条件（選択した回答）</th><th className="p-2 border border-slate-300">ポイント</th></tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr><td rowSpan="10" className="p-2 border border-slate-300 font-bold bg-blue-50 text-blue-800 text-center">本人<br/>回答</td><td className="p-2 border border-slate-300">Q0-1. 復職可能と言われているか</td><td className="p-2 border border-slate-300">復職可能とは言われていない</td><td className="p-2 border border-slate-300 font-bold text-red-600">+15</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q0-2. 就業制限・配慮の指示</td><td className="p-2 border border-slate-300">あり</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q1-2, Q1-3. 勤務継続の見込み</td><td className="p-2 border border-slate-300">かなり不安がある / 難しい 等</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q1-4. 直近の体調安定</td><td className="p-2 border border-slate-300">不安定である</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q2-1, Q2-4. 眠気や集中力低下</td><td className="p-2 border border-slate-300">よくある / かなりある 等</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q2-2. めまい・ふらつき等</td><td className="p-2 border border-slate-300">よくある</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q3-2, Q3-3. 睡眠の確保・質</td><td className="p-2 border border-slate-300">不足する / 不安定 等</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q4C系. (交替勤務の場合) </td><td className="p-2 border border-slate-300">体力・夜勤・眠気への不安大</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q5-1. 復職への不安</td><td className="p-2 border border-slate-300">とても強い</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q5-2. 職場の人間関係の不安</td><td className="p-2 border border-slate-300">かなりある / とても強い</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                    
+                                                    <tr><td rowSpan="8" className="p-2 border border-slate-300 font-bold bg-indigo-50 text-indigo-800 text-center">職制<br/>回答</td><td className="p-2 border border-slate-300">Q0-3. 復職後の業務内容</td><td className="p-2 border border-slate-300">未定</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q2-1. 業務の安全上の懸念</td><td className="p-2 border border-slate-300">かなりある</td><td className="p-2 border border-slate-300 font-bold text-red-600">+15</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q2-4. 必要な配慮の実施可否</td><td className="p-2 border border-slate-300">実施困難</td><td className="p-2 border border-slate-300 font-bold text-red-600">+15</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q2-5. 単独・危険作業の回避</td><td className="p-2 border border-slate-300">困難</td><td className="p-2 border border-slate-300 font-bold text-red-600">+10</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q4C-1. 交替勤務の再開</td><td className="p-2 border border-slate-300">必要がある</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q5-4. 職場としての受入れ懸念</td><td className="p-2 border border-slate-300">ある</td><td className="p-2 border border-slate-300 font-bold text-red-600">+10</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q5-5. 相談希望(保健師)</td><td className="p-2 border border-slate-300">保健師へ相談したい</td><td className="p-2 border border-slate-300 font-bold text-red-600">+3</td></tr>
+                                                    <tr><td className="p-2 border border-slate-300">Q5-5. 相談希望(産業医)</td><td className="p-2 border border-slate-300">産業医へ相談したい</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </section>
+                                </div>
+                                <div className="p-4 border-t border-slate-200 bg-slate-50 text-right">
+                                    <button onClick={() => setShowMatrixModal(false)} className="px-6 py-2 bg-slate-600 hover:bg-slate-700 text-white font-bold rounded-lg transition-colors shadow-sm">閉じる</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {showCreateUserModal && (
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-md w-full animate-fade-in-up border border-slate-200">
@@ -723,7 +788,7 @@
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-lg w-full animate-fade-in-up border border-slate-200">
                                 <h3 className="text-xl font-bold text-orange-600 mb-2 flex items-center gap-2"><Calendar className="w-6 h-6"/> 保健師面談 希望日時の入力</h3>
-                                <p className="text-sm text-slate-600 mb-6">保健師との面談に向けて、希望日時（第1〜第3希望）を入力してください。入力後、お使いのメールソフトが起動します。</p>
+                                <p className="text-sm text-slate-600 mb-6">保健師との面談に向けて、希望日時（第1〜第3希望）を入力してください。入力後、通知用のメール文面が作成されます。</p>
                                 <div className="space-y-4 mb-6">
                                     <div><label className="block text-sm font-bold text-slate-700 mb-1">第1希望日時</label><input type="datetime-local" value={interviewDates.date1} onChange={e => setInterviewDates({...interviewDates, date1: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-orange-500 outline-none" /></div>
                                     <div><label className="block text-sm font-bold text-slate-700 mb-1">第2希望日時</label><input type="datetime-local" value={interviewDates.date2} onChange={e => setInterviewDates({...interviewDates, date2: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-orange-500 outline-none" /></div>
@@ -735,7 +800,7 @@
                                 </div>
                                 <div className="flex justify-end gap-3">
                                     <button onClick={() => setShowNurseInterviewModal(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl">キャンセル</button>
-                                    <button onClick={submitNurseInterview} className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-sm flex items-center gap-2"><Send className="w-4 h-4"/> 通知文を作成してメールを起動</button>
+                                    <button onClick={submitNurseInterview} className="px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white font-bold rounded-xl shadow-sm flex items-center gap-2"><Send className="w-4 h-4"/> 通知を発信</button>
                                 </div>
                             </div>
                         </div>
@@ -745,7 +810,7 @@
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-lg w-full animate-fade-in-up border border-slate-200">
                                 <h3 className="text-xl font-bold text-purple-600 mb-2 flex items-center gap-2"><Calendar className="w-6 h-6"/> 産業医・5者面談 希望日時の入力</h3>
-                                <p className="text-sm text-slate-600 mb-6">産業医および関係者を交えた5者面談に向けて、希望日時を入力してください。入力後、お使いのメールソフトが起動します。</p>
+                                <p className="text-sm text-slate-600 mb-6">産業医および関係者を交えた5者面談に向けて、希望日時を入力してください。入力後、通知用のメール文面が作成されます。</p>
                                 <div className="space-y-4 mb-6">
                                     <div><label className="block text-sm font-bold text-slate-700 mb-1">第1希望日</label><input type="date" value={interviewDates.date1} onChange={e => setInterviewDates({...interviewDates, date1: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" /></div>
                                     <div><label className="block text-sm font-bold text-slate-700 mb-1">第2希望日</label><input type="date" value={interviewDates.date2} onChange={e => setInterviewDates({...interviewDates, date2: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" /></div>
@@ -757,7 +822,7 @@
                                 </div>
                                 <div className="flex justify-end gap-3">
                                     <button onClick={() => setShowDoctorInterviewModal(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl">キャンセル</button>
-                                    <button onClick={submitDoctorInterview} className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-sm flex items-center gap-2"><Send className="w-4 h-4"/> 通知文を作成してメールを起動</button>
+                                    <button onClick={submitDoctorInterview} className="px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-sm flex items-center gap-2"><Send className="w-4 h-4"/> 通知を発信</button>
                                 </div>
                             </div>
                         </div>
@@ -1245,7 +1310,10 @@
                                 {/* Phase 2 */}
                                 {currentPhase === 2 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
-                                        <h2 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-800 border-b pb-3"><Activity className="w-6 h-6 text-purple-600"/> 【Step 3】 復職判定プロセス</h2>
+                                        <div className="flex justify-between items-center mb-6 border-b pb-3">
+                                            <h2 className="text-xl font-bold flex items-center gap-2 text-slate-800"><Activity className="w-6 h-6 text-purple-600"/> 【Step 3】 復職判定プロセス</h2>
+                                            <button onClick={() => setShowMatrixModal(true)} className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 py-1.5 px-3 rounded flex items-center gap-1 font-bold border border-slate-300 transition-colors"><Info className="w-4 h-4"/> 判定マトリックス</button>
+                                        </div>
 
                                         {currentRole === 'employee' || currentRole === 'manager' ? (
                                             <div className="text-center p-12 bg-purple-50 rounded-xl border border-purple-100"><Lock className="w-12 h-12 text-purple-300 mx-auto mb-4"/><h3 className="text-xl font-bold text-purple-800 mb-2">専門職判定ステップ</h3><p className="text-purple-600">このフェーズは産業保健スタッフ（保健師・産業医）専用の判定画面です。本人および職制は閲覧できません。</p></div>
@@ -1612,7 +1680,13 @@
                                                                 const empEmail = formData.emp_contact_email || '';
                                                                 const subject = `【就業支援ポータル】プログラム完了のお知らせ (${formData.name}さん)`;
                                                                 const body = `${formData.name} 様\n\n就業支援プログラムがすべて完了いたしました。\n今後のご活躍と健康の維持をお祈りしております。`;
-                                                                if (empEmail) openMailClient(empEmail, subject, body);
+                                                                if (empEmail) {
+                                                                    if (currentRole === 'employee') {
+                                                                        setEmailDraft({ to: empEmail, subject: subject, body: body, onClose: () => {} });
+                                                                    } else {
+                                                                        openMailClient(empEmail, subject, body);
+                                                                    }
+                                                                }
                                                             } 
                                                         }} className={`${hasEvalGap ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'} text-white font-bold py-3 px-8 rounded-md shadow-sm flex items-center justify-center gap-2 w-full sm:w-auto`}>
                                                             {hasEvalGap ? '保健師にフォローを依頼する' : '就業支援プログラムを完了する'} <Check className="w-5 h-5"/>
