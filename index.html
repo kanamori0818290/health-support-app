@@ -16,7 +16,8 @@
             "lucide-react": "https://esm.sh/lucide-react@0.294.0",
             "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
             "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
-            "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"
+            "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js",
+            "firebase/storage": "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js"
         }
     }
     </script>
@@ -45,11 +46,18 @@
     <script type="text/babel" data-type="module">
         import React, { useState, useEffect } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft, User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check, Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail, AlertCircle, Search, Calendar, Printer, Download, Send, Play, Building, Plus, Copy } from 'lucide-react';
+        import {
+            Upload, FileText, CheckCircle, Clock, ChevronRight, ChevronLeft,
+            User, Users, Briefcase, HeartPulse, Shield, LogOut, Lock, Check,
+            Activity, AlertTriangle, Info, RotateCcw, Trash2, Smartphone, Mail,
+            AlertCircle, Search, Calendar, Printer, Download, Send, Play,
+            Building, Plus, Copy, Eye
+        } from 'lucide-react';
         
         import { initializeApp } from 'firebase/app';
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendEmailVerification } from 'firebase/auth';
         import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
+        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 
         // 本番公開時は false に変更するとデモログインボタンが非表示になります
         const ENABLE_DEMO_MODE = true;
@@ -67,11 +75,12 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
+        const storage = getStorage(app);
         const secondaryApp = initializeApp(firebaseConfig, "SecondaryApp");
         const secondaryAuth = getAuth(secondaryApp);
 
         const ROLES = [
-            { id: 'admin', label: 'システム管理者', icon: Lock },
+            { id: 'admin', label: 'システム管理者 (人事)', icon: Lock },
             { id: 'employee', label: '従業員 (本人)', icon: User },
             { id: 'manager', label: '職制 (上司)', icon: Briefcase },
             { id: 'ohp', label: '保健師・産業医', icon: HeartPulse }
@@ -85,68 +94,94 @@
             { id: 4, title: 'フォロー', desc: '面談シート' }
         ];
 
-        const SHOBYO_STATUSES = [
-            { value: '1', label: '① 本人・医師記入待ち', badge: 'bg-slate-100 text-slate-700 border-slate-300' },
-            { value: '2', label: '② 人事確認・出勤簿作成中', badge: 'bg-amber-100 text-amber-800 border-amber-300' },
-            { value: '3', label: '③ 健保へFAX送信済', badge: 'bg-blue-100 text-blue-800 border-blue-300' },
-            { value: '4', label: '④ 支給決定・完了', badge: 'bg-emerald-100 text-emerald-800 border-emerald-300' }
-        ];
-
         const MASTER_ADMIN_EMAIL = "yuuto.kanamori.ma@mcgc.com";
 
-        // ポータルURL取得ヘルパー
-        const getPortalUrl = () => {
-            if (typeof window !== 'undefined' && window.location) {
-                return `${window.location.origin}${window.location.pathname}`;
-            }
-            return '';
-        };
-
-        // --- 日本の祝日判定ヘルパー ---
-        const getNthWeekday = (year, month, weekday, n) => {
+        // --- 日本の祝日判定ヘルパー (2020〜2035年対応・振替休日/国民の休日含む) ---
+        const getNthWeekdayOfMonth = (year, month, weekday, nth) => {
             const firstDay = new Date(year, month - 1, 1).getDay();
             const offset = (weekday - firstDay + 7) % 7;
-            return 1 + offset + (n - 1) * 7;
+            return 1 + offset + (nth - 1) * 7;
         };
+
+        const getVernalEquinoxDay = (year) => Math.floor(20.8431 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
+        const getAutumnalEquinoxDay = (year) => Math.floor(23.2488 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
 
         const getBaseJapaneseHoliday = (year, month, day) => {
             if (month === 1 && day === 1) return '元日';
-            if (month === 1 && day === getNthWeekday(year, 1, 1, 2)) return '成人の日';
+            if (month === 1 && day === getNthWeekdayOfMonth(year, 1, 1, 2)) return '成人の日';
             if (month === 2 && day === 11) return '建国記念の日';
             if (month === 2 && day === 23) return '天皇誕生日';
-            const vernal = Math.floor(20.8431 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
-            if (month === 3 && day === vernal) return '春分の日';
+            if (month === 3 && day === getVernalEquinoxDay(year)) return '春分の日';
             if (month === 4 && day === 29) return '昭和の日';
             if (month === 5 && day === 3) return '憲法記念日';
             if (month === 5 && day === 4) return 'みどりの日';
             if (month === 5 && day === 5) return 'こどもの日';
-            if (month === 7 && day === getNthWeekday(year, 7, 1, 3)) return '海の日';
+            if (month === 7 && day === getNthWeekdayOfMonth(year, 7, 1, 3)) return '海の日';
             if (month === 8 && day === 11) return '山の日';
-            const keiro = getNthWeekday(year, 9, 1, 3);
-            if (month === 9 && day === keiro) return '敬老の日';
-            const autumnal = Math.floor(23.2488 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
-            if (month === 9 && day === autumnal) return '秋分の日';
-            if (month === 9 && autumnal - keiro === 2 && day === keiro + 1) return '国民の休日';
-            if (month === 10 && day === getNthWeekday(year, 10, 1, 2)) return 'スポーツの日';
+            if (month === 9 && day === getNthWeekdayOfMonth(year, 9, 1, 3)) return '敬老の日';
+            if (month === 9 && day === getAutumnalEquinoxDay(year)) return '秋分の日';
+            if (month === 10 && day === getNthWeekdayOfMonth(year, 10, 1, 2)) return 'スポーツの日';
             if (month === 11 && day === 3) return '文化の日';
             if (month === 11 && day === 23) return '勤労感謝の日';
-            return '';
+            return null;
         };
 
         const getJapaneseHolidayName = (year, month, day) => {
             const base = getBaseJapaneseHoliday(year, month, day);
             if (base) return base;
+
             const d = new Date(year, month - 1, day);
-            for (let i = 1; i <= 7; i++) {
-                const prev = new Date(d);
-                prev.setDate(d.getDate() - i);
-                const py = prev.getFullYear();
-                const pm = prev.getMonth() + 1;
-                const pd = prev.getDate();
-                if (!getBaseJapaneseHoliday(py, pm, pd)) break;
-                if (prev.getDay() === 0) return '振替休日';
+            const dow = d.getDay();
+
+            // 振替休日判定（祝日が日曜日にあたるとき、その後の直近の平日を休日とする）
+            if (dow >= 1 && dow <= 5) {
+                for (let back = 1; back <= 4; back++) {
+                    const prev = new Date(year, month - 1, day - back);
+                    const pBase = getBaseJapaneseHoliday(prev.getFullYear(), prev.getMonth() + 1, prev.getDate());
+                    if (!pBase) break;
+                    if (prev.getDay() === 0) return '振替休日';
+                }
             }
-            return '';
+
+            // 国民の休日判定（前日と翌日がともに祝日）
+            const prevDay = new Date(year, month - 1, day - 1);
+            const nextDay = new Date(year, month - 1, day + 1);
+            if (
+                getBaseJapaneseHoliday(prevDay.getFullYear(), prevDay.getMonth() + 1, prevDay.getDate()) &&
+                getBaseJapaneseHoliday(nextDay.getFullYear(), nextDay.getMonth() + 1, nextDay.getDate())
+            ) {
+                return '国民の休日';
+            }
+
+            return null;
+        };
+
+        const isCompanyWorkingDay = (dateStr) => {
+            const [y, m, d] = dateStr.split('-').map(Number);
+            const dt = new Date(y, m - 1, d);
+            const dow = dt.getDay();
+            if (dow === 0 || dow === 6) return false;
+            if (getJapaneseHolidayName(y, m, d)) return false;
+            return true;
+        };
+
+        const getDateRangeStrings = (startStr, endStr) => {
+            if (!startStr || !endStr || startStr > endStr) return [];
+            const list = [];
+            const [sy, sm, sd] = startStr.split('-').map(Number);
+            const [ey, em, ed] = endStr.split('-').map(Number);
+            const cur = new Date(sy, sm - 1, sd);
+            const end = new Date(ey, em - 1, ed);
+            let guard = 0;
+            while (cur <= end && guard < 400) {
+                const yy = cur.getFullYear();
+                const mm = String(cur.getMonth() + 1).padStart(2, '0');
+                const dd = String(cur.getDate()).padStart(2, '0');
+                list.push(`${yy}-${mm}-${dd}`);
+                cur.setDate(cur.getDate() + 1);
+                guard++;
+            }
+            return list;
         };
 
         function HealthSupportPortal() {
@@ -175,7 +210,7 @@
             const [newDeptName, setNewDeptName] = useState(''); 
 
             const [showCreateUserModal, setShowCreateUserModal] = useState(false);
-            const [showConditionModal, setShowConditionModal] = useState(false); 
+            const [showConditionModal, setShowConditionModal] = useState(false);
             const [tempConditionText, setTempConditionText] = useState('');
             
             const [showNurseInterviewModal, setShowNurseInterviewModal] = useState(false);
@@ -187,11 +222,7 @@
             const [showMatrixModal, setShowMatrixModal] = useState(false);
             const [toastMsg, setToastMsg] = useState('');
 
-            const [newUserData, setNewUserData] = useState({ empId: '', name: '', email: '', password: '', role: 'employee', department: '' });
-            const [adminCreateMsg, setAdminCreateMsg] = useState({ type: '', text: '' });
-            const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
-
-            // 有休・休業シミュレーション用ステート
+            // 有休・休業シミュレーション用の表示ステート
             const [simActiveTab, setSimActiveTab] = useState(0);
             const [simViewStep, setSimViewStep] = useState(null);
             const [showSimHistoryModal, setShowSimHistoryModal] = useState(false);
@@ -203,13 +234,33 @@
             // 傷病手当金 申請・FAX管理モーダル用ステート
             const [showShobyoModal, setShowShobyoModal] = useState(false);
 
+            // 診断書アップロード・閲覧モーダル用ステート
+            const [showCertModal, setShowCertModal] = useState(false);
+            const [certDocType, setCertDocType] = useState('初回診断書（休業開始）');
+            const [certNote, setCertNote] = useState('');
+            const [certFile, setCertFile] = useState(null);
+            const [isUploadingCert, setIsUploadingCert] = useState(false);
+            const [previewCert, setPreviewCert] = useState(null);
+
+            const [newUserData, setNewUserData] = useState({ empId: '', name: '', email: '', password: '', role: 'employee', department: '' });
+            const [adminCreateMsg, setAdminCreateMsg] = useState({ type: '', text: '' });
+            const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
+
             const actualPhase = formData.phase || 0;
             const pgStep = formData.pg_step !== undefined ? formData.pg_step : 1;
-            const activePgStep = simViewStep !== null ? simViewStep : pgStep; 
+            const activePgStep = simViewStep !== null ? simViewStep : pgStep;
 
             const showToast = (msg) => {
                 setToastMsg(msg);
-                setTimeout(() => setToastMsg(''), 3500);
+                setTimeout(() => setToastMsg(''), 3000);
+            };
+
+            const getPortalUrl = () => {
+                try {
+                    return window.location.origin + window.location.pathname;
+                } catch (e) {
+                    return 'https://health-support-portal.web.app';
+                }
             };
 
             // メーラーを起動する関数 (会社PC用)
@@ -218,7 +269,7 @@
                 window.location.href = mailtoLink;
             };
 
-            // クリップボードへコピーする機能 (個人スマホ用・iFrame対応フォールバック付)
+            // クリップボードへコピーする機能 (iFrame対応フォールバック付き)
             const copyToClipboard = (text) => {
                 if (navigator.clipboard && navigator.clipboard.writeText) {
                     navigator.clipboard.writeText(text).then(() => {
@@ -232,17 +283,19 @@
             };
 
             const fallbackCopy = (text) => {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
                 try {
-                    const ta = document.createElement('textarea');
-                    ta.value = text;
-                    document.body.appendChild(ta);
-                    ta.select();
                     document.execCommand('copy');
-                    document.body.removeChild(ta);
                     showToast("クリップボードにコピーしました！");
                 } catch (e) {
-                    showToast("コピーに失敗しました。手動で選択してコピーしてください。");
+                    showToast("コピーに失敗しました。手動で選択してください。");
                 }
+                document.body.removeChild(ta);
             };
 
             // 権限ごとの宛先メールアドレスを取得するヘルパー関数
@@ -414,7 +467,10 @@
             };
 
             const startDemoLogin = (roleId) => {
-                setIsDemoMode(true); setCurrentRole(roleId); setCurrentUser({ id: `demo_${roleId}`, name: 'デモユーザー', role: roleId, empId: '99999' }); setIsLoggedIn(true);
+                setIsDemoMode(true);
+                setCurrentRole(roleId);
+                setCurrentUser({ id: `demo_${roleId}`, name: roleId === 'employee' ? 'デモ 従業員' : 'デモ担当者', role: roleId, empId: '99999' });
+                setIsLoggedIn(true);
                 const now = Date.now();
                 
                 setUsersList([
@@ -433,7 +489,10 @@
                 ]);
 
                 if (roleId === 'employee') {
-                    setCurrentView('detail'); setFormData({ id: 'demo_case', empId: '99999', name: 'デモユーザー', department: '営業部', phase: 0, lastUpdated: now }); setCurrentPhase(0); setSimViewStep(null);
+                    setCurrentView('detail');
+                    setFormData({ id: 'demo_case', uid: 'demo_employee', empId: '99999', name: 'デモ 従業員', department: '営業部', phase: 0, lastUpdated: now });
+                    setCurrentPhase(0);
+                    setSimViewStep(null);
                 } else {
                     setCurrentView('dashboard');
                     setCases([
@@ -477,14 +536,11 @@
                 setCurrentPhase(caseData.phase || 0);
                 setSimViewStep(null);
                 if (caseData.sim_start_date) {
-                    const parts = caseData.sim_start_date.split('-');
-                    if (parts.length === 3) {
-                        setSimCalMonth({ year: parseInt(parts[0], 10), month: parseInt(parts[1], 10) });
-                    }
+                    const [sy, sm] = caseData.sim_start_date.split('-').map(Number);
+                    if (sy && sm) setSimCalMonth({ year: sy, month: sm });
                 }
                 setCurrentView('detail');
             };
-
             const handleInputChange = (e) => { const { name, value } = e.target; setFormData(prev => ({ ...prev, [name]: value })); };
             const handleCheckboxChange = (e) => { const { name, checked } = e.target; setFormData(prev => ({ ...prev, [name]: checked })); };
 
@@ -500,206 +556,334 @@
             const CurrentRoleIcon = ROLES.find(r => r.id === currentRole)?.icon || User;
             const isAdmin = currentRole === 'admin';
             const canEditSim = isAdmin || canEdit('employee');
-            const canViewShobyo = currentRole !== 'manager'; // 職制以外の本人・人事・専門職が閲覧可（編集は本人・人事）
-
-            // --- 有休・休業シミュレーション ヘルパー ---
-            const simPaidLeave = formData.sim_paid_leave !== undefined ? Number(formData.sim_paid_leave) : 20;
-            const simLifeSupport = formData.sim_life_support !== undefined ? Number(formData.sim_life_support) : 5;
-            const defaultStart = new Date().toISOString().split('T')[0];
-            const defaultEndObj = new Date();
-            defaultEndObj.setDate(defaultEndObj.getDate() + 65);
-            const defaultEnd = defaultEndObj.toISOString().split('T')[0];
-            const simStartDate = formData.sim_start_date || defaultStart;
-            const simEndDate = formData.sim_end_date || defaultEnd;
-            const simSelectedPattern = formData.sim_selected_pattern !== undefined ? formData.sim_selected_pattern : 0;
-
-            const defaultSimPatterns = [
-                { name: '案A: 最初の3日のみ有休（傷病手当金メイン）', inputMode: 'calendar', calendarMap: {}, manualPaid: 3, manualLS: 0, manualAbsence: 62 },
-                { name: '案B: 有休を半分温存・残り欠勤', inputMode: 'calendar', calendarMap: {}, manualPaid: 10, manualLS: 0, manualAbsence: 55 },
-                { name: '案C: 有休・LSを最大限活用（欠勤60日未満狙い）', inputMode: 'calendar', calendarMap: {}, manualPaid: 20, manualLS: 5, manualAbsence: 40 }
-            ];
-
-            const simPatterns = Array.isArray(formData.sim_patterns) && formData.sim_patterns.length === 3
-                ? formData.sim_patterns
-                : defaultSimPatterns;
-
-            const getPatternMetrics = (pat) => {
-                let usedPaid = 0;
-                let usedLS = 0;
-                let absenceDays = 0;
-
-                if (pat.inputMode === 'manual') {
-                    usedPaid = Math.max(0, Number(pat.manualPaid) || 0);
-                    usedLS = Math.max(0, Number(pat.manualLS) || 0);
-                    absenceDays = Math.max(0, Number(pat.manualAbsence) || 0);
-                } else {
-                    const calMap = pat.calendarMap || {};
-                    Object.values(calMap).forEach(val => {
-                        if (val === 'paid') usedPaid += 1;
-                        else if (val === 'ls') usedLS += 1;
-                        else if (val === 'absence') absenceDays += 1;
-                    });
-                }
-
-                const totalDays = usedPaid + usedLS + absenceDays;
-                const remainPaid = simPaidLeave - usedPaid;
-                const remainLS = simLifeSupport - usedLS;
-                return { usedPaid, usedLS, absenceDays, totalDays, remainPaid, remainLS };
-            };
-
-            const updateSimBase = (field, value) => {
-                if (field === 'sim_start_date' && value) {
-                    const parts = value.split('-');
-                    if (parts.length === 3) {
-                        setSimCalMonth({ year: parseInt(parts[0], 10), month: parseInt(parts[1], 10) });
-                    }
-                }
-                setFormData(prev => ({
-                    ...prev,
-                    [field]: field.includes('date') ? value : Math.max(0, parseInt(value, 10) || 0)
-                }));
-            };
-
-            const updateSimPattern = (idx, patch) => {
-                setFormData(prev => {
-                    const basePatterns = Array.isArray(prev.sim_patterns) && prev.sim_patterns.length === 3
-                        ? prev.sim_patterns
-                        : defaultSimPatterns;
-                    const nextPatterns = basePatterns.map((p, i) => i === idx ? { ...p, ...patch } : p);
-                    return { ...prev, sim_patterns: nextPatterns };
-                });
-            };
-
-            const toggleCalendarDay = (idx, dateStr) => {
-                if (!canEditSim) return;
-                const order = ['', 'paid', 'ls', 'absence'];
-                setFormData(prev => {
-                    const basePatterns = Array.isArray(prev.sim_patterns) && prev.sim_patterns.length === 3
-                        ? prev.sim_patterns
-                        : defaultSimPatterns;
-                    const target = basePatterns[idx];
-                    const currentMap = { ...(target.calendarMap || {}) };
-                    const cur = currentMap[dateStr] || '';
-                    const nextVal = order[(order.indexOf(cur) + 1) % order.length];
-                    if (nextVal) currentMap[dateStr] = nextVal;
-                    else delete currentMap[dateStr];
-                    const nextPatterns = basePatterns.map((p, i) => i === idx ? { ...p, calendarMap: currentMap } : p);
-                    return { ...prev, sim_patterns: nextPatterns };
-                });
-            };
-
-            const applyCalendarBulk = (idx, action) => {
-                if (!canEditSim) return;
-                setFormData(prev => {
-                    const basePatterns = Array.isArray(prev.sim_patterns) && prev.sim_patterns.length === 3
-                        ? prev.sim_patterns
-                        : defaultSimPatterns;
-                    const target = basePatterns[idx];
-                    let currentMap = { ...(target.calendarMap || {}) };
-
-                    if (action === 'clear') {
-                        currentMap = {};
-                    } else {
-                        const sParts = (prev.sim_start_date || simStartDate).split('-').map(Number);
-                        const eParts = (prev.sim_end_date || simEndDate).split('-').map(Number);
-                        if (sParts.length === 3) {
-                            const startObj = new Date(sParts[0], sParts[1] - 1, sParts[2]);
-                            const endObj = eParts.length === 3 ? new Date(eParts[0], eParts[1] - 1, eParts[2]) : new Date(sParts[0], sParts[1] - 1, sParts[2] + 65);
-
-                            if (action === 'first3_paid') {
-                                let count = 0;
-                                for (let i = 0; i < 30 && count < 3; i++) {
-                                    const d = new Date(startObj);
-                                    d.setDate(startObj.getDate() + i);
-                                    const y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
-                                    const dow = d.getDay();
-                                    const isHoliday = dow === 0 || dow === 6 || !!getJapaneseHolidayName(y, m, day);
-                                    if (!isHoliday) {
-                                        const ds = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                                        currentMap[ds] = 'paid';
-                                        count++;
-                                    }
-                                }
-                            } else if (action === 'fill_weekdays_absence' || action === 'fill_alldays_absence') {
-                                for (let i = 0; i <= 365; i++) {
-                                    const d = new Date(startObj);
-                                    d.setDate(startObj.getDate() + i);
-                                    if (d > endObj) break;
-                                    const y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate();
-                                    const dow = d.getDay();
-                                    const isHoliday = dow === 0 || dow === 6 || !!getJapaneseHolidayName(y, m, day);
-                                    const ds = `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                                    if (!currentMap[ds]) {
-                                        if (action === 'fill_alldays_absence' || !isHoliday) {
-                                            currentMap[ds] = 'absence';
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    const nextPatterns = basePatterns.map((p, i) => i === idx ? { ...p, calendarMap: currentMap } : p);
-                    return { ...prev, sim_patterns: nextPatterns };
-                });
-            };
-
-            // --- 傷病手当金 申請・FAX管理 ヘルパー ---
-            const shobyoClaims = Array.isArray(formData.shobyo_claims) ? formData.shobyo_claims : [];
-
-            const addShobyoClaim = () => {
-                const nextNum = shobyoClaims.length + 1;
-                const newClaim = {
-                    id: `claim_${Date.now()}`,
-                    round: `第${nextNum}回`,
-                    periodStart: nextNum === 1 ? (formData.sim_start_date || '') : '',
-                    periodEnd: '',
-                    status: '1',
-                    chk_doctor: false,
-                    chk_waiting: false,
-                    chk_attendance: false,
-                    fax_date: '',
-                    fax_staff: isAdmin ? (currentUser?.name || '') : '',
-                    fax_ref_no: '',
-                    memo: ''
-                };
-                setFormData(prev => ({
-                    ...prev,
-                    shobyo_claims: [...(Array.isArray(prev.shobyo_claims) ? prev.shobyo_claims : []), newClaim]
-                }));
-            };
-
-            const updateShobyoClaim = (claimId, patch) => {
-                setFormData(prev => ({
-                    ...prev,
-                    shobyo_claims: (Array.isArray(prev.shobyo_claims) ? prev.shobyo_claims : []).map(c =>
-                        c.id === claimId ? { ...c, ...patch } : c
-                    )
-                }));
-            };
-
-            const deleteShobyoClaim = (claimId, roundLabel) => {
-                requestConfirm(`「${roundLabel}」の傷病手当金申請記録を削除しますか？`, () => {
-                    const updated = shobyoClaims.filter(c => c.id !== claimId);
-                    saveData({ shobyo_claims: updated });
-                });
-            };
+            const canViewShobyo = currentRole !== 'manager';
+            const canAccessCert = currentRole !== 'manager';
 
             const saveData = async (extraData = {}) => {
                 const newData = { ...formData, ...extraData, lastUpdated: Date.now() };
                 setFormData(newData);
                 if (extraData.phase !== undefined) setCurrentPhase(extraData.phase);
                 if (!isDemoMode) {
-                    try { const saveId = newData.id || `case_${Date.now()}`; await setDoc(doc(db, "cases", saveId), { ...newData, id: saveId }, { merge: true }); if (!newData.id) setFormData(prev => ({ ...prev, id: saveId })); } 
-                    catch (error) { console.error("保存エラー:", error); }
+                    try {
+                        const saveId = newData.id || `case_${Date.now()}`;
+                        await setDoc(doc(db, "cases", saveId), { ...newData, id: saveId }, { merge: true });
+                        if (!newData.id) setFormData(prev => ({ ...prev, id: saveId }));
+                        showToast("データを保存しました");
+                    } catch (error) { console.error("保存エラー:", error); }
                 } else {
                     setCases(prev => {
                         const existing = prev.find(c => c.id === newData.id);
                         if (existing) return prev.map(c => c.id === newData.id ? newData : c);
                         return [...prev, { ...newData, id: newData.id || `demo_${Date.now()}` }];
                     });
+                    showToast("データを保存しました");
                 }
-                showToast("保存しました");
+            };
+
+            // --- 診断書・医療書類 アップロード・閲覧・ダウンロード ヘルパー ---
+            const medicalCertificates = Array.isArray(formData.medical_certificates) ? formData.medical_certificates : [];
+
+            const formatFileSize = (bytes) => {
+                if (!bytes) return '';
+                if (bytes < 1024) return `${bytes} B`;
+                if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+                return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+            };
+
+            const handleUploadCertificate = async (e) => {
+                e.preventDefault();
+                if (!certFile) {
+                    showToast("アップロードするファイルを選択してください");
+                    return;
+                }
+                if (certFile.size > 15 * 1024 * 1024) {
+                    requestConfirm("ファイルサイズが15MBを超えています。15MB以下のPDFまたは画像ファイルを選択してください。", () => {});
+                    return;
+                }
+
+                setIsUploadingCert(true);
+                const certId = `cert_${Date.now()}`;
+                const caseId = formData.id || `case_${Date.now()}`;
+                const phaseLabel = actualPhase === 5 ? '完了後' : `Step ${actualPhase + 1} (${PHASES[actualPhase]?.title || ''})`;
+                const uploadedAt = new Date().toLocaleString('ja-JP', {
+                    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+                });
+
+                try {
+                    let downloadUrl = '';
+                    let storagePath = '';
+
+                    if (isDemoMode) {
+                        downloadUrl = URL.createObjectURL(certFile);
+                    } else {
+                        storagePath = `certificates/${caseId}/${certId}_${certFile.name}`;
+                        const storageRef = ref(storage, storagePath);
+                        await uploadBytes(storageRef, certFile);
+                        downloadUrl = await getDownloadURL(storageRef);
+                    }
+
+                    const newCert = {
+                        id: certId,
+                        docType: certDocType,
+                        fileName: certFile.name,
+                        fileType: certFile.type || 'application/octet-stream',
+                        fileSize: certFile.size,
+                        note: certNote.trim(),
+                        phaseLabel,
+                        uploadedAt,
+                        uploadedBy: `${currentUser?.name || '不明'} (${currentRoleLabel})`,
+                        uploadedRole: currentRole,
+                        storagePath,
+                        downloadUrl
+                    };
+
+                    const updatedCerts = [newCert, ...medicalCertificates];
+                    const logText = `【診断書提出】${currentUser?.name || '対象者'}（${currentRoleLabel}）が「${certDocType}」（${certFile.name}）をアップロードしました。${certNote.trim() ? `\nメモ: ${certNote.trim()}` : ''}`;
+                    const newLog = {
+                        date: new Date().toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+                        text: logText,
+                        author: 'システム',
+                        role: 'system'
+                    };
+
+                    await saveData({
+                        id: caseId,
+                        medical_certificates: updatedCerts,
+                        contact_logs: [...(formData.contact_logs || []), newLog]
+                    });
+
+                    const submittedType = certDocType;
+                    const submittedFileName = certFile.name;
+                    setCertFile(null);
+                    setCertNote('');
+                    const fileInput = document.getElementById('cert-file-input');
+                    if (fileInput) fileInput.value = '';
+
+                    showToast("診断書をアップロードしました！");
+
+                    if (currentRole === 'employee') {
+                        const ohpEmails = getEmailsByRole('ohp');
+                        setEmailDraft({
+                            to: ohpEmails,
+                            subject: `【就業支援ポータル】診断書の提出 (${formData.name || '従業員'}さん / ${submittedType})`,
+                            body: `保健師・産業医・人事担当者 様\n\n${formData.name || '従業員'} さんがポータルへ新しい診断書をアップロードしました。\n\n■書類区分: ${submittedType}\n■ファイル名: ${submittedFileName}\n■提出タイミング: ${phaseLabel}\n\nポータルにログインし、上部の「診断書提出・閲覧」ボタンより内容をご確認・ダウンロードください。\n\n▼ポータルURL\n${getPortalUrl()}`,
+                            onClose: () => {}
+                        });
+                    }
+                } catch (err) {
+                    console.error("診断書アップロードエラー:", err);
+                    const detailMsg = err?.code === 'storage/unauthorized'
+                        ? "Firebase Console の「Storage」を有効化し、セキュリティルールを許可設定にしてください。"
+                        : "ネットワーク環境をご確認のうえ、再度お試しください。";
+                    requestConfirm(`診断書のアップロードに失敗しました。\n${detailMsg}`, () => {});
+                } finally {
+                    setIsUploadingCert(false);
+                }
+            };
+
+            const handleDeleteCertificate = (cert) => {
+                requestConfirm(`診断書「${cert.fileName}」（${cert.docType}）を削除しますか？\n※一度削除すると元に戻せません。`, async () => {
+                    try {
+                        if (!isDemoMode && cert.storagePath) {
+                            const storageRef = ref(storage, cert.storagePath);
+                            await deleteObject(storageRef).catch(() => {});
+                        }
+                        const updated = medicalCertificates.filter(c => c.id !== cert.id);
+                        await saveData({ medical_certificates: updated });
+                        if (previewCert && previewCert.id === cert.id) setPreviewCert(null);
+                        showToast("診断書を削除しました");
+                    } catch (err) {
+                        console.error("削除エラー:", err);
+                        showToast("削除中にエラーが発生しました");
+                    }
+                });
+            };
+
+            const handleDownloadCertificate = async (cert) => {
+                try {
+                    const response = await fetch(cert.downloadUrl);
+                    const blob = await response.blob();
+                    const blobUrl = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = blobUrl;
+                    link.download = cert.fileName || 'certificate';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+                } catch (e) {
+                    const link = document.createElement('a');
+                    link.href = cert.downloadUrl;
+                    link.download = cert.fileName || 'certificate';
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                }
+            };
+
+            // --- 有休・休業シミュレーション ヘルパー ---
+            const todayStr = new Date().toISOString().split('T')[0];
+            const defaultEndStr = (() => {
+                const d = new Date();
+                d.setDate(d.getDate() + 65);
+                return d.toISOString().split('T')[0];
+            })();
+
+            const simPaidLeave = formData.sim_paid_leave !== undefined ? Number(formData.sim_paid_leave) : 20;
+            const simLifeSupport = formData.sim_life_support !== undefined ? Number(formData.sim_life_support) : 5;
+            const simStartDate = formData.sim_start_date || todayStr;
+            const simEndDate = formData.sim_end_date || defaultEndStr;
+            const simSelectedPattern = formData.sim_selected_pattern !== undefined ? formData.sim_selected_pattern : 0;
+
+            const defaultSimPatterns = [
+                { name: 'パターンA（待期3日のみ有休）', inputMode: 'calendar', calendarMap: {}, manualPaid: 3, manualLS: 0, manualAbsence: 62 },
+                { name: 'パターンB（有休＋LSを積極消化）', inputMode: 'calendar', calendarMap: {}, manualPaid: 20, manualLS: 5, manualAbsence: 40 },
+                { name: 'パターンC（欠勤60日未満に調整）', inputMode: 'manual', calendarMap: {}, manualPaid: 10, manualLS: 2, manualAbsence: 53 }
+            ];
+            const simPatterns = Array.isArray(formData.sim_patterns) && formData.sim_patterns.length === 3
+                ? formData.sim_patterns
+                : defaultSimPatterns;
+
+            const getPatternMetrics = (pat) => {
+                if (pat.inputMode === 'manual') {
+                    const usedPaid = Number(pat.manualPaid) || 0;
+                    const usedLS = Number(pat.manualLS) || 0;
+                    const absenceDays = Number(pat.manualAbsence) || 0;
+                    return {
+                        usedPaid,
+                        usedLS,
+                        absenceDays,
+                        totalDays: usedPaid + usedLS + absenceDays,
+                        remainPaid: simPaidLeave - usedPaid,
+                        remainLS: simLifeSupport - usedLS
+                    };
+                }
+                const cmap = pat.calendarMap || {};
+                let usedPaid = 0;
+                let usedLS = 0;
+                let absenceDays = 0;
+                Object.values(cmap).forEach(v => {
+                    if (v === 'paid') usedPaid++;
+                    else if (v === 'ls') usedLS++;
+                    else if (v === 'absence') absenceDays++;
+                });
+                return {
+                    usedPaid,
+                    usedLS,
+                    absenceDays,
+                    totalDays: usedPaid + usedLS + absenceDays,
+                    remainPaid: simPaidLeave - usedPaid,
+                    remainLS: simLifeSupport - usedLS
+                };
+            };
+
+            const updateSimBase = (field, value) => {
+                const updates = { [field]: value };
+                if (field === 'sim_start_date' && value) {
+                    const [y, m] = value.split('-').map(Number);
+                    if (y && m) setSimCalMonth({ year: y, month: m });
+                }
+                setFormData(prev => ({ ...prev, ...updates }));
+            };
+
+            const updateSimPattern = (idx, patch) => {
+                const updated = simPatterns.map((p, i) => i === idx ? { ...p, ...patch } : p);
+                setFormData(prev => ({ ...prev, sim_patterns: updated }));
+            };
+
+            const toggleCalendarDay = (idx, dateStr) => {
+                if (!canEditSim) return;
+                const pat = simPatterns[idx];
+                const cmap = { ...(pat.calendarMap || {}) };
+                const cur = cmap[dateStr] || '';
+                const next = cur === '' ? 'paid' : cur === 'paid' ? 'ls' : cur === 'ls' ? 'absence' : '';
+                if (next === '') delete cmap[dateStr];
+                else cmap[dateStr] = next;
+                updateSimPattern(idx, { calendarMap: cmap });
+            };
+
+            const applyCalendarBulk = (idx, mode) => {
+                if (!canEditSim) return;
+                const pat = simPatterns[idx];
+                const cmap = mode === 'clear' ? {} : { ...(pat.calendarMap || {}) };
+                const range = getDateRangeStrings(simStartDate, simEndDate);
+
+                if (mode === 'first3_paid') {
+                    let count = 0;
+                    for (const ds of range) {
+                        if (isCompanyWorkingDay(ds)) {
+                            cmap[ds] = 'paid';
+                            count++;
+                            if (count >= 3) break;
+                        }
+                    }
+                } else if (mode === 'fill_weekdays_absence') {
+                    for (const ds of range) {
+                        if (!cmap[ds] && isCompanyWorkingDay(ds)) {
+                            cmap[ds] = 'absence';
+                        }
+                    }
+                } else if (mode === 'fill_alldays_absence') {
+                    for (const ds of range) {
+                        if (!cmap[ds]) {
+                            cmap[ds] = 'absence';
+                        }
+                    }
+                }
+                updateSimPattern(idx, { calendarMap: cmap });
+            };
+
+            // --- 傷病手当金 申請・FAX管理表 ヘルパー ---
+            const defaultShobyoClaims = [
+                {
+                    id: 'claim_1',
+                    roundLabel: '第1回申請',
+                    periodStart: simStartDate,
+                    periodEnd: simEndDate,
+                    status: 'waiting_emp',
+                    faxDate: '',
+                    faxStaff: '',
+                    faxRefNo: '',
+                    chkDoctor: false,
+                    chkWaiting3: false,
+                    chkAttendance: false,
+                    memo: ''
+                }
+            ];
+            const shobyoClaims = Array.isArray(formData.shobyo_claims) && formData.shobyo_claims.length > 0
+                ? formData.shobyo_claims
+                : defaultShobyoClaims;
+
+            const addShobyoClaim = () => {
+                const nextNum = shobyoClaims.length + 1;
+                const newItem = {
+                    id: `claim_${Date.now()}`,
+                    roundLabel: `第${nextNum}回申請`,
+                    periodStart: '',
+                    periodEnd: '',
+                    status: 'waiting_emp',
+                    faxDate: '',
+                    faxStaff: '',
+                    faxRefNo: '',
+                    chkDoctor: false,
+                    chkWaiting3: false,
+                    chkAttendance: false,
+                    memo: ''
+                };
+                setFormData(prev => ({ ...prev, shobyo_claims: [...shobyoClaims, newItem] }));
+            };
+
+            const updateShobyoClaim = (idx, patch) => {
+                const updated = shobyoClaims.map((item, i) => i === idx ? { ...item, ...patch } : item);
+                setFormData(prev => ({ ...prev, shobyo_claims: updated }));
+            };
+
+            const removeShobyoClaim = (idx) => {
+                if (shobyoClaims.length <= 1) return;
+                const updated = shobyoClaims.filter((_, i) => i !== idx);
+                setFormData(prev => ({ ...prev, shobyo_claims: updated }));
             };
 
             const addContactLog = () => {
@@ -720,7 +904,7 @@
                 });
             };
 
-            const deleteCase = (caseId, caseName) => { requestConfirm(`${caseName}さんのデータを完全に削除します。よろしいですか？`, async () => { if (!isDemoMode) { try { await deleteDoc(doc(db, "cases", caseId)); } catch (e) {} } else { setCases(cases.filter(c => c.id !== caseId)); } }); };
+            const deleteCase = (caseId, caseName) => { requestConfirm(`${caseName || '対象者'}さんのデータを完全に削除します。よろしいですか？`, async () => { if (!isDemoMode) { try { await deleteDoc(doc(db, "cases", caseId)); } catch (e) {} } else { setCases(cases.filter(c => c.id !== caseId)); } }); };
             const updateUserRole = (targetUserId, targetEmail, newRole) => {
                 if (targetEmail === MASTER_ADMIN_EMAIL && newRole !== 'admin') return;
                 requestConfirm("権限を更新します。よろしいですか？", async () => { if (!isDemoMode) { try { await setDoc(doc(db, "users", targetUserId), { role: newRole }, { merge: true }); } catch (e) {} } else { setUsersList(usersList.map(u => u.id === targetUserId ? { ...u, role: newRole } : u)); } });
@@ -760,11 +944,7 @@
             };
 
             const getIdleDays = (lastUpdated) => { if (!lastUpdated) return 0; return Math.floor(Math.abs(Date.now() - lastUpdated) / (1000 * 60 * 60 * 24)); };
-
-            // フェーズに応じた放置警告の閾値日数（判定前は5日、療養・フォロー中は14日）
-            const getIdleThreshold = (phaseNum) => {
-                return (phaseNum || 0) >= 3 ? 14 : 5;
-            };
+            const getIdleThreshold = (phase) => ((phase || 0) >= 3 ? 14 : 5);
 
             const checkEvaluationGap = () => {
                 if (actualPhase !== 4) return false;
@@ -779,7 +959,7 @@
             const handleExportCSV = () => {
                 let csvContent = "\uFEFFデータ項目,入力値\n";
                 Object.keys(formData).forEach(key => {
-                    if (key === 'contact_logs' || key === 'sim_patterns' || key === 'shobyo_claims') return; 
+                    if (key === 'contact_logs' || key === 'sim_patterns' || key === 'shobyo_claims' || key === 'medical_certificates') return; 
                     let val = formData[key] || '';
                     if (typeof val === 'string') { val = val.replace(/"/g, '""'); if (val.search(/("|,|\n)/g) >= 0) val = `"${val}"`; }
                     csvContent += `${key},${val}\n`;
@@ -831,33 +1011,27 @@
             };
 
             const handleImpossibleJudgment = () => {
-                requestConfirm("【就業不可（療養継続）】と判定し、対象者を「Phase Ⅰ（療養専念期）」へ戻して療養を継続しますか？\n（※コンタクト履歴に判定記録が自動追加されます）", () => {
-                    const logText = `【専門職最終判定】産業医判定により「③ 就業不可（療養継続）」となりました。引き続き療養に専念し、次回面談の調整を行います。`;
+                requestConfirm("「③ 就業不可（療養継続）」として確定し、Phase Ⅰ（療養状況報告）へ差し戻して療養を継続しますか？", () => {
+                    const logText = `【最終判定】産業医判定により「③ 就業不可（療養継続）」と判定されました。引き続き療養に専念します。`;
                     const newLog = { date: new Date().toLocaleString('ja-JP'), text: logText, author: `${currentUser?.name} (${currentRoleLabel})`, role: currentRole };
-                    setSimViewStep(null);
                     saveData({
                         pg_step: 1,
                         doctor_final_judgment: 'impossible',
                         contact_logs: [...(formData.contact_logs || []), newLog]
                     });
-                    const empEmail = formData.emp_contact_email || '';
-                    if (empEmail) {
-                        const subject = `【就業支援ポータル】就業判定結果・療養継続のお知らせ (${formData.name}さん)`;
-                        const body = `${formData.name} 様\n\n産業医による就業判定の結果、現時点では引き続き「療養継続」との判断となりました。\n焦らず治療に専念いただき、体調の変化や次回受診状況についてポータルの「Phase Ⅰ 療養状況報告」よりご報告ください。\n\n▼ポータルURL\n${getPortalUrl()}`;
-                        openMailClient(empEmail, subject, body);
-                    }
+                    setSimViewStep(null);
                 });
             };
 
-            const renderQ = (id, title, options, disabled, formData, handleInputChange) => (
+            const renderQ = (id, title, options, disabled, formDataObj, onChangeFn) => (
                 <div key={id} className="flex flex-col p-4 bg-white border border-slate-200 rounded-lg shadow-sm mb-4">
                     <span className="text-slate-700 font-bold mb-3 text-sm leading-relaxed">{title}</span>
                     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2">
                         {options.map((opt, i) => {
-                            const isChecked = String(formData[id]) === String(i+1);
+                            const isChecked = String(formDataObj[id]) === String(i+1);
                             return (
                                 <label key={i} className={`flex items-center gap-2 p-2 rounded border transition-colors ${disabled && isChecked ? 'bg-blue-100 border-blue-400 shadow-sm' : disabled ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-blue-50 cursor-pointer'}`}>
-                                    <input type="radio" name={id} value={String(i+1)} checked={isChecked} onChange={handleInputChange} disabled={disabled} className={`w-4 h-4 text-blue-600 ${disabled && isChecked ? 'opacity-100' : 'disabled:opacity-50'}`}/>
+                                    <input type="radio" name={id} value={String(i+1)} checked={isChecked} onChange={onChangeFn} disabled={disabled} className={`w-4 h-4 text-blue-600 ${disabled && isChecked ? 'opacity-100' : 'disabled:opacity-50'}`}/>
                                     <span className={`font-medium text-xs ${disabled && isChecked ? 'text-blue-900 font-bold' : 'text-slate-700'}`}>{opt}</span>
                                 </label>
                             );
@@ -865,15 +1039,15 @@
                     </div>
                 </div>
             );
-            const renderText = (id, placeholder, disabled, formData, handleInputChange) => {
-                const hasValue = !!formData[id];
-                return (<textarea name={id} value={formData[id] || ''} onChange={handleInputChange} disabled={disabled} placeholder={placeholder} className={`w-full p-3 border rounded-md h-24 mb-4 text-sm focus:ring-2 focus:ring-blue-500 outline-none ${disabled && hasValue ? 'bg-blue-50 border-blue-200 text-blue-900 font-medium' : disabled ? 'bg-slate-100 border-slate-200 text-slate-500' : 'bg-white border-slate-300'}`}></textarea>);
+            const renderText = (id, placeholder, disabled, formDataObj, onChangeFn) => {
+                const hasValue = !!formDataObj[id];
+                return (<textarea name={id} value={formDataObj[id] || ''} onChange={onChangeFn} disabled={disabled} placeholder={placeholder} className={`w-full p-3 border rounded-md h-24 mb-4 text-sm focus:ring-2 focus:ring-blue-500 outline-none ${disabled && hasValue ? 'bg-blue-50 border-blue-200 text-blue-900 font-medium' : disabled ? 'bg-slate-100 border-slate-200 text-slate-500' : 'bg-white border-slate-300'}`}></textarea>);
             };
 
             const empQuestions = {
                 q1: [['emp_q1_1', 'Q1-1. 現在、勤務時間に近い時間帯で日中活動できていますか', ['問題なくできている', 'おおむねできている', '少し不安がある', 'できていない']], ['emp_q1_2', 'Q1-2. 所定労働時間に相当する時間、活動を続けられますか', ['問題なくできる', 'おおむねできる', '途中で休憩が必要', '難しい']], ['emp_q1_3', 'Q1-3. 復職後、予定された勤務を継続できる見込みがありますか', ['ある', '少し不安がある', 'かなり不安がある', 'わからない']], ['emp_q1_4', 'Q1-4. 現在の体調は、ここ1〜2週間で安定していますか', ['安定している', 'おおむね安定している', '日によって波がある', '不安定である']], ['emp_q1_5', 'Q1-5. 復職後、急な体調悪化で勤務継続が難しくなる不安はありますか', ['ない', '少しある', 'かなりある', 'わからない']]],
                 q2: [['emp_q2_1', 'Q2-1. 業務中に注意力が低下するような症状はありますか', ['ない', '時々ある', 'よくある', '判断できない']], ['emp_q2_2', 'Q2-2. めまい・ふらつき・失神しそうな感じはありますか', ['ない', '時々ある', 'よくある', '判断できない']], ['emp_q2_3', 'Q2-3. 痛み、息切れ、強い疲労感などにより、安全な作業に不安がありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['emp_q2_4', 'Q2-4. 服薬や治療の影響で、眠気・集中力低下・動作の遅れなどがありますか', ['ない', '少しある', 'かなりある', 'わからない']], ['emp_q2_5', 'Q2-5. 自分自身で「安全に働ける状態」と思いますか', ['思う', 'おおむね思う', '少し不安がある', '不安が大きい']]],
-                q3: [['emp_q3_1', 'Q3-1. 起床時刻は安定していますか', ['安定している', 'おおむね安定している', '日によってばらつきがある', '安定していない']], ['emp_q3_2', 'Q3-2. 睡眠時間は確保できていますか', ['確保できている', 'おおむね確保できている', '不足する日がある', 'ほとんど確保できていない']], ['emp_q3_3', 'Q3-3. 睡眠の質は安定していますか', ['安定している', 'おおむね安定している', 'やや不安定', '不安定']], ['emp_q3_4', 'Q3-4. 日中に強い眠気やだるさがありますか', ['ない', '時々ある', 'よくある', 'ほぼ毎日ある']], ['emp_q3_5', 'Q3-5. 食事・服薬・通院など、健康管理を継続できていますか', ['できている', 'おおむねできている', '一部できていない', 'できていない']]],
+                q3: [['emp_q3_1', 'Q3-1. 起床時刻は安定していますか', ['安定している', 'おおむね安定している', '日によってばらつきがある', '安定していない']], ['emp_q3_2', 'Q3-2. 睡眠時間は確保できていますか', ['確保できている', 'おおむね確保できています', '不足する日がある', 'ほとんど確保できていない']], ['emp_q3_3', 'Q3-3. 睡眠の質は安定していますか', ['安定している', 'おおむね安定している', 'やや不安定', '不安定']], ['emp_q3_4', 'Q3-4. 日中に強い眠気やだるさがありますか', ['ない', '時々ある', 'よくある', 'ほぼ毎日ある']], ['emp_q3_5', 'Q3-5. 食事・服薬・通院など、健康管理を継続できていますか', ['できている', 'おおむねできている', '一部できていない', 'できていない']]],
                 q4a: [['emp_q4a_1', 'Q4A-1. 座って作業を続けることに支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']], ['emp_q4a_2', 'Q4A-2. パソコン作業や書類作業に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']], ['emp_q4a_3', 'Q4A-3. 業務中、集中力を保てそうですか', ['保てる', 'おおむね保てる', '少し不安がある', '難しい']], ['emp_q4a_4', 'Q4A-4. 電話、メール、会議などの対応に不安はありませんか', ['不安なし', '少し不安あり', '強い不安あり', '判断できない']], ['emp_q4a_5', 'Q4A-5. 通勤に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']]],
                 q4b: [['emp_q4b_1', 'Q4B-1. 立ち作業を行うことに支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']], ['emp_q4b_2', 'Q4B-2. 職場内の歩行や移動に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']], ['emp_q4b_3', 'Q4B-3. 階段昇降、しゃがむ、かがむ、手を伸ばすなどの動作に支障はありませんか', ['支障なし', '少し不安あり', '支障あり', '判断できない']], ['emp_q4b_4', 'Q4B-4. 作業手順を守り、安全確認を行いながら作業できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']], ['emp_q4b_5', 'Q4B-5. 重量物の取り扱い、工具使用、機械操作などに不安はありませんか', ['該当業務なし', '不安なし', '少し不安あり', '強い不安あり']], ['emp_q4b_6', 'Q4B-6. 痛み、疲労、眠気、集中力低下などにより作業ミスが起こる不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']]],
                 q4c: [['emp_q4c_1', 'Q4C-1. 交替勤務に戻ることについて、体力面の不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['emp_q4c_2', 'Q4C-2. 夜勤または早朝勤務に対応できる見込みがありますか', ['対応できる', 'おおむね対応できる', '少し不安がある', '難しい']], ['emp_q4c_3', 'Q4C-3. 勤務間の休息で疲労回復できる見込みがありますか', ['できる', 'おおむねできる', '少し不安がある', '難しい']], ['emp_q4c_4', 'Q4C-4. 睡眠時間がずれる勤務でも、体調を維持できそうですか', ['できる', 'おおむねできる', '少し不安がある', '難しい']], ['emp_q4c_5', 'Q4C-5. 夜勤中または早朝勤務中に、眠気や集中力低下の不安はありますか', ['ない', '少しある', 'かなりある', '判断できない']], ['emp_q4c_6', 'Q4C-6. 交替勤務に復帰する前に、日勤勤務や段階的勤務が必要だと思いますか', ['不要', 'あると安心', '必要', '判断できない']]],
@@ -976,7 +1150,7 @@
 
                             {ENABLE_DEMO_MODE && (
                                 <div className="mt-8 pt-6 border-t border-slate-200">
-                                    <p className="text-xs text-slate-500 font-bold text-center mb-3">【開発・検証用】認証をスキップして各権限の画面を確認</p>
+                                    <p className="text-xs text-slate-500 font-bold text-center mb-3">【開発用】認証をスキップして各権限の画面を確認</p>
                                     <div className="grid grid-cols-2 gap-2">
                                         {ROLES.map(role => (
                                             <button key={`demo_${role.id}`} type="button" onClick={() => startDemoLogin(role.id)} className="p-2 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded flex items-center justify-center gap-1 transition-colors"><role.icon className="w-3 h-3"/> {role.label}</button>
@@ -991,167 +1165,135 @@
 
             return (
                 <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20 relative">
-
+                    
                     {/* トースト通知 */}
                     {toastMsg && (
-                        <div className="fixed bottom-6 right-6 bg-slate-800 text-white px-5 py-3 rounded-xl shadow-xl z-[300] flex items-center gap-2 text-sm font-bold animate-fade-in-up">
-                            <CheckCircle className="w-4 h-4 text-emerald-400"/>
-                            <span>{toastMsg}</span>
+                        <div className="fixed bottom-6 right-6 z-[400] bg-slate-800 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-bold flex items-center gap-2 animate-fade-in-up">
+                            <CheckCircle className="w-4 h-4 text-emerald-400"/> {toastMsg}
                         </div>
                     )}
 
-                    {/* 就業上の配慮・条件入力モーダル（window.prompt代替） */}
-                    {showConditionModal && (
-                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[200] backdrop-blur-sm p-4">
-                            <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-lg w-full animate-fade-in-up border border-slate-200">
-                                <h3 className="text-lg font-bold text-purple-800 mb-2 flex items-center gap-2"><Shield className="w-5 h-5"/> 就業上の配慮・条件の入力</h3>
-                                <p className="text-sm text-slate-600 mb-4 leading-relaxed">就業上の配慮・条件を入力してください（例：残業禁止、出張不可、重量物制限など）。<br/><span className="text-xs text-orange-600 font-bold">※この内容は関係者に共有されます。</span></p>
-                                <textarea
-                                    value={tempConditionText}
-                                    onChange={(e) => setTempConditionText(e.target.value)}
-                                    placeholder="例: 復職後1ヶ月間は残業禁止、日勤勤務のみとする"
-                                    className="w-full p-3 border border-slate-300 rounded-lg h-32 text-sm focus:ring-2 focus:ring-purple-500 outline-none mb-6"
-                                ></textarea>
-                                <div className="flex justify-end gap-3">
-                                    <button onClick={() => setShowConditionModal(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl">キャンセル</button>
-                                    <button onClick={() => { setShowConditionModal(false); finalizePhase3To4(tempConditionText); }} className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-sm">確定して復帰へ進む</button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* 傷病手当金 申請・FAX管理表モーダル */}
-                    {showShobyoModal && (
+                    {/* 傷病手当金 申請・FAX管理モーダル */}
+                    {showShobyoModal && canViewShobyo && (
                         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[250] backdrop-blur-sm p-4">
                             <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col animate-fade-in-up overflow-hidden border border-slate-200">
                                 <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-amber-50">
                                     <div>
-                                        <h3 className="text-lg sm:text-xl font-bold text-slate-800 flex items-center gap-2"><FileText className="w-6 h-6 text-amber-600"/> 傷病手当金 申請・健保FAX送信管理表</h3>
-                                        <p className="text-xs text-slate-600 mt-0.5">本人 ⇔ 人事はポータルで進捗共有し、健康保険組合への最終提出はクラウドFAX送信履歴・チェックリストで管理します。</p>
+                                        <h3 className="text-lg sm:text-xl font-bold text-slate-800 flex items-center gap-2">
+                                            <FileText className="w-6 h-6 text-amber-600"/> 傷病手当金 申請・FAX管理表（健保提出用）
+                                        </h3>
+                                        <p className="text-xs text-slate-600 mt-0.5">
+                                            本人・医師の記入進捗と、健康保険組合（FAX希望）への送信履歴・チェックリストを一元管理します。
+                                        </p>
                                     </div>
                                     <button onClick={() => setShowShobyoModal(false)} className="text-slate-500 hover:bg-slate-200 p-2 rounded-full transition-colors">✕</button>
                                 </div>
 
                                 <div className="p-6 overflow-y-auto flex-grow space-y-6 text-sm bg-slate-50/50">
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                                        <div className="text-xs text-slate-600 leading-relaxed">
-                                            <b>【運用ルール】</b> 病院の医師記入が完了したらステータスを「② 人事確認・出勤簿作成中」へ進めてください。人事は3項目のチェック完了後、健保へFAX送信し送信日・管理番号を記録します。
+                                    <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 leading-relaxed flex items-start gap-3">
+                                        <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5"/>
+                                        <div>
+                                            <b>【運用のポイント】</b> 従業員ご本人とのやりとりはポータル上で完結させ、健康保険組合への提出のみクラウドFAX等で送信してください。送信日・担当者名・FAX管理番号を記録しておくことで、差し戻しや再送防止につながります。
                                         </div>
-                                        {canEditSim && (
-                                            <button type="button" onClick={addShobyoClaim} className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-sm whitespace-nowrap self-start sm:self-center">
-                                                <Plus className="w-4 h-4"/> 新しい申請回を追加
-                                            </button>
-                                        )}
                                     </div>
 
-                                    {shobyoClaims.length === 0 ? (
-                                        <div className="bg-white p-10 rounded-xl border border-dashed border-slate-300 text-center text-slate-500">
-                                            <FileText className="w-10 h-10 text-slate-300 mx-auto mb-2"/>
-                                            <p className="font-bold text-slate-700 mb-1">まだ傷病手当金の申請記録がありません</p>
-                                            <p className="text-xs mb-4">「新しい申請回を追加」ボタンから第1回目の申請期間を登録してください。</p>
-                                            {canEditSim && (
-                                                <button type="button" onClick={addShobyoClaim} className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs inline-flex items-center gap-1">
-                                                    <Plus className="w-4 h-4"/> 第1回の申請を登録する
-                                                </button>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-4">
-                                            {shobyoClaims.map((claim) => {
-                                                const stObj = SHOBYO_STATUSES.find(s => s.value === claim.status) || SHOBYO_STATUSES[0];
-                                                const allChecked = claim.chk_doctor && claim.chk_waiting && claim.chk_attendance;
-                                                return (
-                                                    <div key={claim.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                                                        <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
-                                                            <div className="flex items-center gap-3">
-                                                                <input
-                                                                    type="text"
-                                                                    value={claim.round}
-                                                                    onChange={(e) => updateShobyoClaim(claim.id, { round: e.target.value })}
-                                                                    disabled={!canEditSim}
-                                                                    className="w-24 p-1.5 border border-slate-300 rounded font-black text-slate-800 bg-white text-sm"
-                                                                />
-                                                                <span className={`text-xs px-2.5 py-1 rounded-full font-bold border ${stObj.badge}`}>
-                                                                    {stObj.label}
-                                                                </span>
-                                                            </div>
-                                                            {canEditSim && (
-                                                                <button type="button" onClick={() => deleteShobyoClaim(claim.id, claim.round)} className="text-xs text-red-500 hover:bg-red-50 px-2.5 py-1 rounded font-bold flex items-center gap-1">
-                                                                    <Trash2 className="w-3.5 h-3.5"/> 削除
-                                                                </button>
-                                                            )}
-                                                        </div>
-
-                                                        <div className="p-5 space-y-4">
-                                                            {/* 対象期間とステータス */}
-                                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                                <div>
-                                                                    <label className="block text-xs font-bold text-slate-600 mb-1">申請対象期間（開始日）</label>
-                                                                    <input type="date" value={claim.periodStart || ''} onChange={(e) => updateShobyoClaim(claim.id, { periodStart: e.target.value })} disabled={!canEditSim} className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white disabled:bg-slate-100"/>
-                                                                </div>
-                                                                <div>
-                                                                    <label className="block text-xs font-bold text-slate-600 mb-1">申請対象期間（終了日）</label>
-                                                                    <input type="date" value={claim.periodEnd || ''} onChange={(e) => updateShobyoClaim(claim.id, { periodEnd: e.target.value })} disabled={!canEditSim} className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white disabled:bg-slate-100"/>
-                                                                </div>
-                                                                <div>
-                                                                    <label className="block text-xs font-bold text-slate-600 mb-1">進行ステータス</label>
-                                                                    <select
-                                                                        value={claim.status || '1'}
-                                                                        onChange={(e) => updateShobyoClaim(claim.id, { status: e.target.value })}
-                                                                        disabled={!canEditSim}
-                                                                        className="w-full p-2 border border-slate-300 rounded-lg text-sm font-bold bg-white disabled:bg-slate-100"
-                                                                    >
-                                                                        {SHOBYO_STATUSES.map(st => (
-                                                                            <option key={st.value} value={st.value}>{st.label}</option>
-                                                                        ))}
-                                                                    </select>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* 人事FAX送信前チェックリスト */}
-                                                            <div className="bg-amber-50/70 p-4 rounded-xl border border-amber-200 space-y-2">
-                                                                <div className="flex items-center justify-between mb-1">
-                                                                    <span className="text-xs font-bold text-amber-900">📋 健保FAX送信前の確認チェックリスト（人事・本人確認）</span>
-                                                                    {allChecked && <span className="text-[11px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold">✓ 全項目確認済</span>}
-                                                                </div>
-                                                                <label className="flex items-center gap-2.5 text-xs font-medium text-slate-800 cursor-pointer">
-                                                                    <input type="checkbox" checked={!!claim.chk_doctor} onChange={(e) => updateShobyoClaim(claim.id, { chk_doctor: e.target.checked })} disabled={!canEditSim} className="w-4 h-4 text-amber-600 rounded"/>
-                                                                    <span>医師の証明日・押印・労務不能期間の記載漏れはないか</span>
-                                                                </label>
-                                                                <label className="flex items-center gap-2.5 text-xs font-medium text-slate-800 cursor-pointer">
-                                                                    <input type="checkbox" checked={!!claim.chk_waiting} onChange={(e) => updateShobyoClaim(claim.id, { chk_waiting: e.target.checked })} disabled={!canEditSim} className="w-4 h-4 text-amber-600 rounded"/>
-                                                                    <span>待期期間（3日間）の有休・欠勤処理と一致しているか</span>
-                                                                </label>
-                                                                <label className="flex items-center gap-2.5 text-xs font-medium text-slate-800 cursor-pointer">
-                                                                    <input type="checkbox" checked={!!claim.chk_attendance} onChange={(e) => updateShobyoClaim(claim.id, { chk_attendance: e.target.checked })} disabled={!canEditSim} className="w-4 h-4 text-amber-600 rounded"/>
-                                                                    <span>出勤簿・賃金台帳の写しを添付したか（人事確認）</span>
-                                                                </label>
-                                                            </div>
-
-                                                            {/* FAX送信履歴・管理番号 */}
-                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-blue-50/50 p-4 rounded-xl border border-blue-200">
-                                                                <div>
-                                                                    <label className="block text-xs font-bold text-blue-900 mb-1">健保へのFAX送信日</label>
-                                                                    <input type="date" value={claim.fax_date || ''} onChange={(e) => updateShobyoClaim(claim.id, { fax_date: e.target.value })} disabled={!isAdmin} className="w-full p-2 border border-blue-200 rounded-lg text-xs bg-white disabled:bg-slate-100"/>
-                                                                </div>
-                                                                <div>
-                                                                    <label className="block text-xs font-bold text-blue-900 mb-1">FAX送信担当者（人事）</label>
-                                                                    <input type="text" placeholder="例: 人事 佐藤" value={claim.fax_staff || ''} onChange={(e) => updateShobyoClaim(claim.id, { fax_staff: e.target.value })} disabled={!isAdmin} className="w-full p-2 border border-blue-200 rounded-lg text-xs bg-white disabled:bg-slate-100"/>
-                                                                </div>
-                                                                <div>
-                                                                    <label className="block text-xs font-bold text-blue-900 mb-1">クラウドFAX送信管理番号</label>
-                                                                    <input type="text" placeholder="例: FAX-202611-001" value={claim.fax_ref_no || ''} onChange={(e) => updateShobyoClaim(claim.id, { fax_ref_no: e.target.value })} disabled={!isAdmin} className="w-full p-2 border border-blue-200 rounded-lg text-xs bg-white disabled:bg-slate-100"/>
-                                                                </div>
-                                                                <div className="sm:col-span-3">
-                                                                    <label className="block text-xs font-bold text-slate-600 mb-1">備考・返戻・原本郵送メモ</label>
-                                                                    <input type="text" placeholder="例: 11/20 クラウドFAX送信完了・控えPDF保管済 / 原本は社内便で回収予定" value={claim.memo || ''} onChange={(e) => updateShobyoClaim(claim.id, { memo: e.target.value })} disabled={!canEditSim} className="w-full p-2 border border-slate-200 rounded-lg text-xs bg-white disabled:bg-slate-100"/>
-                                                                </div>
-                                                            </div>
-                                                        </div>
+                                    {shobyoClaims.map((claim, idx) => {
+                                        const allChecked = claim.chkDoctor && claim.chkWaiting3 && claim.chkAttendance;
+                                        return (
+                                            <div key={claim.id} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+                                                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <input
+                                                            type="text"
+                                                            value={claim.roundLabel}
+                                                            onChange={(e) => updateShobyoClaim(idx, { roundLabel: e.target.value })}
+                                                            disabled={!canEditSim}
+                                                            className="font-black text-base text-slate-800 border-b border-dashed border-slate-300 focus:border-amber-500 outline-none w-32 bg-transparent"
+                                                        />
+                                                        <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
+                                                            claim.status === 'completed' ? 'bg-emerald-100 text-emerald-800' :
+                                                            claim.status === 'fax_sent' ? 'bg-blue-100 text-blue-800' :
+                                                            claim.status === 'hr_checking' ? 'bg-amber-100 text-amber-800' :
+                                                            'bg-slate-100 text-slate-700'
+                                                        }`}>
+                                                            {claim.status === 'completed' ? '④ 支給決定・完了' :
+                                                             claim.status === 'fax_sent' ? '③ 健保へFAX送信済' :
+                                                             claim.status === 'hr_checking' ? '② 人事確認・出勤簿作成中' :
+                                                             '① 本人・医師記入待ち'}
+                                                        </span>
                                                     </div>
-                                                );
-                                            })}
-                                        </div>
+                                                    {canEditSim && shobyoClaims.length > 1 && (
+                                                        <button type="button" onClick={() => removeShobyoClaim(idx)} className="text-xs text-red-500 hover:underline flex items-center gap-1">
+                                                            <Trash2 className="w-3.5 h-3.5"/> 削除
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-slate-600 mb-1">申請対象期間（開始日）</label>
+                                                        <input type="date" value={claim.periodStart || ''} onChange={(e) => updateShobyoClaim(idx, { periodStart: e.target.value })} disabled={!canEditSim} className="w-full p-2 border border-slate-300 rounded-lg text-xs font-bold bg-slate-50"/>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-slate-600 mb-1">申請対象期間（終了日）</label>
+                                                        <input type="date" value={claim.periodEnd || ''} onChange={(e) => updateShobyoClaim(idx, { periodEnd: e.target.value })} disabled={!canEditSim} className="w-full p-2 border border-slate-300 rounded-lg text-xs font-bold bg-slate-50"/>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-slate-600 mb-1">進行ステータス</label>
+                                                        <select value={claim.status} onChange={(e) => updateShobyoClaim(idx, { status: e.target.value })} disabled={!canEditSim} className="w-full p-2 border border-amber-300 rounded-lg text-xs font-bold bg-white">
+                                                            <option value="waiting_emp">① 本人・医師記入待ち</option>
+                                                            <option value="hr_checking">② 人事確認・出勤簿作成中</option>
+                                                            <option value="fax_sent">③ 健保へFAX送信済</option>
+                                                            <option value="completed">④ 支給決定・完了</option>
+                                                        </select>
+                                                    </div>
+                                                </div>
+
+                                                {/* FAX送信前チェックリスト */}
+                                                <div className="bg-slate-50 p-3.5 rounded-lg border border-slate-200 space-y-2">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="text-xs font-bold text-slate-700">FAX送信前チェックリスト（人事確認用）</span>
+                                                        {allChecked && <span className="text-[11px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">✓ 送信準備OK</span>}
+                                                    </div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                                                        <label className="flex items-center gap-2 bg-white p-2 rounded border border-slate-200 cursor-pointer">
+                                                            <input type="checkbox" checked={claim.chkDoctor || false} onChange={(e) => updateShobyoClaim(idx, { chkDoctor: e.target.checked })} disabled={!canEditSim} className="w-4 h-4 text-amber-600 rounded"/>
+                                                            <span>医師証明日・押印・労務不能期間</span>
+                                                        </label>
+                                                        <label className="flex items-center gap-2 bg-white p-2 rounded border border-slate-200 cursor-pointer">
+                                                            <input type="checkbox" checked={claim.chkWaiting3 || false} onChange={(e) => updateShobyoClaim(idx, { chkWaiting3: e.target.checked })} disabled={!canEditSim} className="w-4 h-4 text-amber-600 rounded"/>
+                                                            <span>待期期間3日間の有休・欠勤整合</span>
+                                                        </label>
+                                                        <label className="flex items-center gap-2 bg-white p-2 rounded border border-slate-200 cursor-pointer">
+                                                            <input type="checkbox" checked={claim.chkAttendance || false} onChange={(e) => updateShobyoClaim(idx, { chkAttendance: e.target.checked })} disabled={!canEditSim} className="w-4 h-4 text-amber-600 rounded"/>
+                                                            <span>出勤簿・賃金台帳の写し添付</span>
+                                                        </label>
+                                                    </div>
+                                                </div>
+
+                                                {/* FAX送信記録 */}
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-slate-600 mb-1">健保へのFAX送信日</label>
+                                                        <input type="date" value={claim.faxDate || ''} onChange={(e) => updateShobyoClaim(idx, { faxDate: e.target.value })} disabled={!canEditSim} className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"/>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-slate-600 mb-1">送信担当者名</label>
+                                                        <input type="text" placeholder="例: 人事 鈴木" value={claim.faxStaff || ''} onChange={(e) => updateShobyoClaim(idx, { faxStaff: e.target.value })} disabled={!canEditSim} className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"/>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-slate-600 mb-1">クラウドFAX管理番号・控えメモ</label>
+                                                        <input type="text" placeholder="例: FAX-202611-001" value={claim.faxRefNo || ''} onChange={(e) => updateShobyoClaim(idx, { faxRefNo: e.target.value })} disabled={!canEditSim} className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-white"/>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {canEditSim && (
+                                        <button type="button" onClick={addShobyoClaim} className="w-full py-2.5 border-2 border-dashed border-amber-300 hover:bg-amber-50 text-amber-800 font-bold rounded-xl text-xs flex items-center justify-center gap-1 transition-colors">
+                                            <Plus className="w-4 h-4"/> 次の申請回（第{shobyoClaims.length + 1}回申請）を追加する
+                                        </button>
                                     )}
                                 </div>
 
@@ -1167,22 +1309,222 @@
                         </div>
                     )}
 
+                    {/* 診断書・医療書類 提出＆閲覧・ダウンロードモーダル */}
+                    {showCertModal && canAccessCert && (
+                        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[250] backdrop-blur-sm p-4">
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col animate-fade-in-up overflow-hidden border border-slate-200">
+                                <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-teal-50">
+                                    <div>
+                                        <h3 className="text-lg sm:text-xl font-bold text-slate-800 flex items-center gap-2">
+                                            <Upload className="w-6 h-6 text-teal-600"/> 診断書・医療書類 提出＆保管庫（全フェーズ対応）
+                                        </h3>
+                                        <p className="text-xs text-slate-600 mt-0.5">
+                                            どのPhaseからでも何回でも提出可能です。提出された診断書は保健師・人事がいつでも閲覧・ダウンロードできます（職制には非表示）。
+                                        </p>
+                                    </div>
+                                    <button onClick={() => { setShowCertModal(false); setPreviewCert(null); }} className="text-slate-500 hover:bg-slate-200 p-2 rounded-full transition-colors">✕</button>
+                                </div>
+
+                                <div className="p-6 overflow-y-auto flex-grow space-y-6 text-sm bg-slate-50/50">
+                                    {/* 新規アップロードフォーム */}
+                                    <form onSubmit={handleUploadCertificate} className="bg-white p-5 rounded-xl border-2 border-teal-200 shadow-sm space-y-4">
+                                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                            <h4 className="font-bold text-teal-900 flex items-center gap-2 text-sm">
+                                                <Plus className="w-4 h-4 text-teal-600"/> 新しい診断書をアップロードする
+                                            </h4>
+                                            <span className="text-[11px] bg-teal-100 text-teal-800 px-2.5 py-0.5 rounded-full font-bold">
+                                                現在の進行状況: {actualPhase === 5 ? '完了' : `Step ${actualPhase + 1} (${PHASES[actualPhase]?.title || ''})`}
+                                            </span>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-700 mb-1">書類区分 <span className="text-red-500">*</span></label>
+                                                <select
+                                                    value={certDocType}
+                                                    onChange={(e) => setCertDocType(e.target.value)}
+                                                    className="w-full p-2.5 border border-slate-300 rounded-lg text-sm font-bold text-slate-800 bg-white focus:ring-2 focus:ring-teal-500 outline-none"
+                                                >
+                                                    <option value="初回診断書（休業開始）">初回診断書（休業開始）</option>
+                                                    <option value="療養延長・経過診断書">療養延長・経過診断書</option>
+                                                    <option value="復職可能診断書・主治医意見書">復職可能診断書・主治医意見書</option>
+                                                    <option value="その他医療書類">その他医療書類</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-700 mb-1">診断書ファイル（PDF / スマホ撮影画像） <span className="text-red-500">*</span></label>
+                                                <input
+                                                    id="cert-file-input"
+                                                    type="file"
+                                                    accept="application/pdf,image/*"
+                                                    onChange={(e) => setCertFile(e.target.files && e.target.files[0] ? e.target.files[0] : null)}
+                                                    className="w-full p-2 border border-slate-300 rounded-lg text-xs bg-slate-50 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-bold file:bg-teal-600 file:text-white hover:file:bg-teal-700 cursor-pointer"
+                                                />
+                                            </div>
+                                            <div className="md:col-span-2">
+                                                <label className="block text-xs font-bold text-slate-700 mb-1">補足メモ（任意・療養期間や配慮事項の要約など）</label>
+                                                <input
+                                                    type="text"
+                                                    value={certNote}
+                                                    onChange={(e) => setCertNote(e.target.value)}
+                                                    placeholder="例: 2026年12月末まで自宅療養が必要との診断 / 復職可能・残業制限ありの記載"
+                                                    className="w-full p-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-teal-500 outline-none"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                                            <p className="text-[11px] text-slate-500">※対応形式: PDF, JPG, PNG, HEIC等（最大15MBまで）。文字が鮮明に読める状態で撮影・スキャンしてください。</p>
+                                            <button
+                                                type="submit"
+                                                disabled={isUploadingCert || !certFile}
+                                                className={`px-6 py-2.5 rounded-lg font-bold text-sm shadow-sm flex items-center justify-center gap-2 transition-colors whitespace-nowrap ${isUploadingCert || !certFile ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-teal-600 hover:bg-teal-700 text-white'}`}
+                                            >
+                                                <Upload className="w-4 h-4"/>
+                                                {isUploadingCert ? 'アップロード中...' : '診断書を提出する'}
+                                            </button>
+                                        </div>
+                                    </form>
+
+                                    {/* ブラウザ内プレビュー表示エリア */}
+                                    {previewCert && (
+                                        <div className="bg-slate-900 rounded-xl p-4 text-white space-y-3 shadow-lg animate-fade-in-up">
+                                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 pb-2">
+                                                <div className="flex items-center gap-2">
+                                                    <Eye className="w-4 h-4 text-teal-400"/>
+                                                    <span className="font-bold text-sm">{previewCert.fileName}</span>
+                                                    <span className="text-xs text-slate-400">({previewCert.docType})</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDownloadCertificate(previewCert)}
+                                                        className="px-3 py-1 bg-teal-600 hover:bg-teal-500 text-white rounded text-xs font-bold flex items-center gap-1"
+                                                    >
+                                                        <Download className="w-3.5 h-3.5"/> ダウンロード
+                                                    </button>
+                                                    <a
+                                                        href={previewCert.downloadUrl}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white rounded text-xs font-bold"
+                                                    >
+                                                        別タブで拡大表示
+                                                    </a>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPreviewCert(null)}
+                                                        className="px-2.5 py-1 bg-slate-700 hover:bg-red-600 text-white rounded text-xs font-bold"
+                                                    >
+                                                        閉じる
+                                                    </button>
+                                                </div>
+                                            </div>
+                                            <div className="bg-white rounded-lg overflow-hidden flex items-center justify-center min-h-[360px] max-h-[55vh]">
+                                                {previewCert.fileType && previewCert.fileType.startsWith('image/') ? (
+                                                    <img src={previewCert.downloadUrl} alt={previewCert.fileName} className="max-h-[55vh] w-auto object-contain"/>
+                                                ) : (
+                                                    <iframe src={previewCert.downloadUrl} title={previewCert.fileName} className="w-full h-[55vh] border-0"></iframe>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* 提出済み診断書一覧 */}
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                                                <FileText className="w-4 h-4 text-teal-600"/> 提出済みの診断書・医療書類一覧（{medicalCertificates.length} 件）
+                                            </h4>
+                                        </div>
+
+                                        {medicalCertificates.length === 0 ? (
+                                            <div className="bg-white p-10 rounded-xl border border-dashed border-slate-300 text-center text-slate-500">
+                                                <FileText className="w-10 h-10 text-slate-300 mx-auto mb-2"/>
+                                                <p className="font-bold text-slate-700 mb-1">まだ診断書はアップロードされていません</p>
+                                                <p className="text-xs">上のフォームからPDFまたは画像ファイルを選択して提出してください。</p>
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-3">
+                                                {medicalCertificates.map((cert) => (
+                                                    <div key={cert.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-teal-300 transition-colors">
+                                                        <div className="space-y-1.5">
+                                                            <div className="flex flex-wrap items-center gap-2">
+                                                                <span className="bg-teal-100 text-teal-800 border border-teal-200 text-xs px-2.5 py-0.5 rounded-full font-bold">
+                                                                    {cert.docType}
+                                                                </span>
+                                                                <span className="bg-slate-100 text-slate-600 text-[11px] px-2 py-0.5 rounded font-bold">
+                                                                    {cert.phaseLabel}
+                                                                </span>
+                                                                <span className="text-xs text-slate-400">
+                                                                    提出日時: {cert.uploadedAt}
+                                                                </span>
+                                                            </div>
+                                                            <div className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                                                                <FileText className="w-4 h-4 text-slate-400 flex-shrink-0"/>
+                                                                <span className="break-all">{cert.fileName}</span>
+                                                                {cert.fileSize && <span className="text-xs font-normal text-slate-400">({formatFileSize(cert.fileSize)})</span>}
+                                                            </div>
+                                                            <div className="text-xs text-slate-500">
+                                                                提出者: {cert.uploadedBy}
+                                                                {cert.note && <span className="ml-3 text-slate-700 font-medium bg-slate-50 px-2 py-0.5 rounded border border-slate-200">メモ: {cert.note}</span>}
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 self-end sm:self-center flex-shrink-0">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setPreviewCert(cert)}
+                                                                className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-300 rounded-lg text-xs font-bold flex items-center gap-1 transition-colors"
+                                                            >
+                                                                <Eye className="w-3.5 h-3.5"/> 閲覧
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDownloadCertificate(cert)}
+                                                                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition-colors"
+                                                            >
+                                                                <Download className="w-3.5 h-3.5"/> ダウンロード
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDeleteCertificate(cert)}
+                                                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                                                title="この診断書を削除"
+                                                            >
+                                                                <Trash2 className="w-4 h-4"/>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="p-4 border-t border-slate-200 bg-white flex justify-end">
+                                    <button type="button" onClick={() => { setShowCertModal(false); setPreviewCert(null); }} className="px-6 py-2 bg-slate-600 hover:bg-slate-700 text-white font-bold rounded-lg text-sm transition-colors">閉じる</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* 有休・休業シミュレーション 振り返りモーダル */}
                     {showSimHistoryModal && (
                         <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[250] backdrop-blur-sm p-4">
                             <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col animate-fade-in-up overflow-hidden border border-slate-200">
                                 <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-sky-50">
-                                    <h3 className="text-lg sm:text-xl font-bold text-slate-800 flex items-center gap-2"><Calendar className="w-6 h-6 text-sky-600"/> 有休・ライフサポート・休業シミュレーション記録</h3>
+                                    <div>
+                                        <h3 className="text-lg sm:text-xl font-bold text-slate-800 flex items-center gap-2">
+                                            <Calendar className="w-6 h-6 text-sky-600"/> 有休・ライフサポート・休業シミュレーション記録
+                                        </h3>
+                                        <p className="text-xs text-slate-600 mt-0.5">
+                                            保有有休: <b>{simPaidLeave}日</b> ／ ライフサポート: <b>{simLifeSupport}日</b> ／ 予定期間: <b>{simStartDate} 〜 {simEndDate}</b>
+                                        </p>
+                                    </div>
                                     <button onClick={() => setShowSimHistoryModal(false)} className="text-slate-500 hover:bg-slate-200 p-2 rounded-full transition-colors">✕</button>
                                 </div>
                                 <div className="p-6 overflow-y-auto flex-grow space-y-6 text-sm">
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                                        <div><span className="text-xs text-slate-500 block">保有有休残</span><span className="font-black text-base text-slate-800">{simPaidLeave} 日</span></div>
-                                        <div><span className="text-xs text-slate-500 block">ライフサポート残</span><span className="font-black text-base text-slate-800">{simLifeSupport} 日</span></div>
-                                        <div><span className="text-xs text-slate-500 block">休業予定期間</span><span className="font-bold text-slate-800">{simStartDate} 〜 {simEndDate}</span></div>
-                                        <div><span className="text-xs text-slate-500 block">採用中プラン</span><span className="font-black text-sky-700">パターン {['A', 'B', 'C'][simSelectedPattern]}</span></div>
-                                    </div>
-
                                     <div className="overflow-x-auto border border-slate-200 rounded-xl">
                                         <table className="w-full text-left text-xs whitespace-nowrap">
                                             <thead className="bg-slate-100 border-b border-slate-200 text-slate-700">
@@ -1194,7 +1536,7 @@
                                                     <th className="p-3">残有休</th>
                                                     <th className="p-3">欠勤日数</th>
                                                     <th className="p-3">翌年有休 (60日基準)</th>
-                                                    <th className="p-3">待期3日</th>
+                                                    <th className="p-3">待期3日カバー</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
@@ -1203,14 +1545,17 @@
                                                     const isSelected = simSelectedPattern === idx;
                                                     return (
                                                         <tr key={idx} className={isSelected ? 'bg-sky-50 font-bold' : ''}>
-                                                            <td className="p-3">{['A', 'B', 'C'][idx]}: {pat.name} {isSelected && <span className="ml-1 bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded text-[10px]">採用</span>}</td>
-                                                            <td className="p-3 text-slate-500">{pat.inputMode === 'manual' ? '日数入力' : 'カレンダー'}</td>
+                                                            <td className="p-3 text-slate-800">
+                                                                {['A', 'B', 'C'][idx]}: {pat.name}
+                                                                {isSelected && <span className="ml-2 bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.5 rounded font-black">採用中</span>}
+                                                            </td>
+                                                            <td className="p-3 text-slate-500">{pat.inputMode === 'manual' ? '日数直接入力' : 'カレンダー選択'}</td>
                                                             <td className="p-3 text-emerald-700 font-bold">{m.usedPaid}日</td>
                                                             <td className="p-3 text-indigo-700 font-bold">{m.usedLS}日</td>
-                                                            <td className="p-3">{m.remainPaid}日</td>
+                                                            <td className={`p-3 font-bold ${m.remainPaid < 0 ? 'text-red-600' : 'text-slate-700'}`}>{m.remainPaid}日</td>
                                                             <td className={`p-3 font-black ${m.absenceDays >= 60 ? 'text-red-600' : 'text-slate-800'}`}>{m.absenceDays}日</td>
-                                                            <td className="p-3">{m.absenceDays >= 60 ? <span className="text-red-600 font-bold">13日へ減少</span> : <span className="text-green-600 font-bold">21日維持</span>}</td>
-                                                            <td className="p-3">{m.usedPaid >= 3 ? <span className="text-emerald-600 font-bold">○ 済</span> : <span className="text-orange-600 font-bold">△ 3日未満</span>}</td>
+                                                            <td className="p-3">{m.absenceDays >= 60 ? <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold">13日へ減少</span> : <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold">21日維持</span>}</td>
+                                                            <td className="p-3">{m.usedPaid >= 3 ? <span className="text-emerald-600 font-bold">○ カバー済</span> : <span className="text-orange-600 font-bold">△ 3日未満</span>}</td>
                                                         </tr>
                                                     );
                                                 })}
@@ -1219,17 +1564,20 @@
                                     </div>
 
                                     {(() => {
-                                        const adopted = simPatterns[simSelectedPattern] || simPatterns[0];
-                                        if (adopted.inputMode === 'manual') return null;
-                                        const entries = Object.entries(adopted.calendarMap || {}).sort((a, b) => a[0].localeCompare(b[0]));
-                                        if (entries.length === 0) return <p className="text-xs text-slate-400">※カレンダー上の個別日付割り当てはまだ登録されていません。</p>;
+                                        const selPat = simPatterns[simSelectedPattern] || simPatterns[0];
+                                        const entries = Object.entries(selPat.calendarMap || {}).sort(([a], [b]) => a.localeCompare(b));
+                                        if (selPat.inputMode === 'manual' || entries.length === 0) return null;
                                         return (
                                             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                                                <h4 className="font-bold text-slate-700 text-xs mb-2">採用中パターン（{['A', 'B', 'C'][simSelectedPattern]}）のカレンダー割り当て一覧</h4>
-                                                <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
-                                                    {entries.map(([dt, st]) => (
-                                                        <span key={dt} className={`px-2 py-1 rounded text-[11px] font-bold ${st === 'paid' ? 'bg-emerald-100 text-emerald-800' : st === 'ls' ? 'bg-indigo-100 text-indigo-800' : 'bg-rose-100 text-rose-800'}`}>
-                                                            {dt} ({st === 'paid' ? '有休' : st === 'ls' ? 'ライフ' : '欠勤'})
+                                                <h4 className="font-bold text-slate-700 text-xs mb-3">採用プラン（{selPat.name}）のカレンダー割り当て日付一覧</h4>
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {entries.map(([dStr, st]) => (
+                                                        <span key={dStr} className={`text-[11px] px-2 py-1 rounded font-bold ${
+                                                            st === 'paid' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                                                            st === 'ls' ? 'bg-indigo-100 text-indigo-800 border border-indigo-200' :
+                                                            'bg-rose-100 text-rose-800 border border-rose-200'
+                                                        }`}>
+                                                            {dStr.slice(5).replace('-', '/')} ({st === 'paid' ? '有休' : st === 'ls' ? 'LS' : '欠勤'})
                                                         </span>
                                                     ))}
                                                 </div>
@@ -1238,17 +1586,50 @@
                                     })()}
                                 </div>
                                 <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-between items-center">
-                                    {canEditSim && actualPhase >= 3 ? (
-                                        <button onClick={() => { setShowSimHistoryModal(false); setCurrentPhase(3); setSimViewStep(0); }} className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-lg text-xs sm:text-sm transition-colors">
-                                            シミュレーション画面を開いて編集する
+                                    {actualPhase === 3 && canEditSim ? (
+                                        <button type="button" onClick={() => { setShowSimHistoryModal(false); setSimViewStep(0); }} className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-lg text-xs transition-colors">
+                                            シミュレーション画面を開いて再編集する
                                         </button>
                                     ) : <div></div>}
-                                    <button onClick={() => setShowSimHistoryModal(false)} className="px-6 py-2 bg-slate-600 hover:bg-slate-700 text-white font-bold rounded-lg text-sm transition-colors">閉じる</button>
+                                    <button type="button" onClick={() => setShowSimHistoryModal(false)} className="px-6 py-2 bg-slate-600 hover:bg-slate-700 text-white font-bold rounded-lg text-xs transition-colors">閉じる</button>
                                 </div>
                             </div>
                         </div>
                     )}
-                    
+
+                    {/* 就業上の配慮・条件入力モーダル (window.prompt代替) */}
+                    {showConditionModal && (
+                        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-[260] backdrop-blur-sm p-4">
+                            <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-lg w-full animate-fade-in-up border border-slate-200">
+                                <h3 className="text-lg font-bold text-purple-900 mb-2 flex items-center gap-2">
+                                    <Shield className="w-5 h-5 text-purple-600"/> 就業上の配慮・条件の入力
+                                </h3>
+                                <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+                                    「② 就業制限・配慮が必要」として確定します。具体的な配慮事項・制限内容を入力してください（この内容は本人・職制・管理者に共有され、復帰プランPDFにも記載されます）。
+                                </p>
+                                <textarea
+                                    value={tempConditionText}
+                                    onChange={(e) => setTempConditionText(e.target.value)}
+                                    placeholder="例：復職後1ヶ月間は残業禁止、出張不可、重量物（10kg以上）の取り扱い制限"
+                                    className="w-full p-3 border border-purple-300 rounded-xl h-32 text-sm focus:ring-2 focus:ring-purple-500 outline-none mb-5"
+                                ></textarea>
+                                <div className="flex justify-end gap-3">
+                                    <button type="button" onClick={() => setShowConditionModal(false)} className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-sm">キャンセル</button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setShowConditionModal(false);
+                                            finalizePhase3To4(tempConditionText);
+                                        }}
+                                        className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl text-sm shadow-sm"
+                                    >
+                                        この条件で判定を確定する
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* コピペ用メール文面モーダル */}
                     {emailDraft && (
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[200] backdrop-blur-sm p-4">
@@ -1335,7 +1716,7 @@
                                                     <tr><td className="p-2 border border-slate-300">Q5-1. 復職への不安</td><td className="p-2 border border-slate-300">とても強い</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
                                                     <tr><td className="p-2 border border-slate-300">Q5-2. 職場の人間関係の不安</td><td className="p-2 border border-slate-300">かなりある / とても強い</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
                                                     
-                                                    <tr><td rowSpan="8" className="p-2 border border-slate-300 font-bold bg-indigo-50 text-indigo-800 text-center">職制<br/>回答</td><td className="p-2 border border-slate-300">Q0-3. 復職後の業務内容の決定状況</td><td className="p-2 border border-slate-300">未定</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                    <tr><td rowSpan="8" className="p-2 border border-slate-300 font-bold bg-indigo-50 text-indigo-800 text-center">職制<br/>回答</td><td className="p-2 border border-slate-300">Q0-3. 復職後の業務内容</td><td className="p-2 border border-slate-300">未定</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
                                                     <tr><td className="p-2 border border-slate-300">Q2-1. 業務の安全上の懸念</td><td className="p-2 border border-slate-300">かなりある</td><td className="p-2 border border-slate-300 font-bold text-red-600">+15</td></tr>
                                                     <tr><td className="p-2 border border-slate-300">Q2-4. 必要な配慮の実施可否</td><td className="p-2 border border-slate-300">実施困難</td><td className="p-2 border border-slate-300 font-bold text-red-600">+15</td></tr>
                                                     <tr><td className="p-2 border border-slate-300">Q2-5. 単独・危険作業の回避</td><td className="p-2 border border-slate-300">困難</td><td className="p-2 border border-slate-300 font-bold text-red-600">+10</td></tr>
@@ -1355,6 +1736,7 @@
                         </div>
                     )}
 
+                    {/* 新規ユーザー作成モーダル */}
                     {showCreateUserModal && (
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-md w-full animate-fade-in-up border border-slate-200">
@@ -1376,6 +1758,7 @@
                         </div>
                     )}
 
+                    {/* 保健師面談 希望日時モーダル */}
                     {showNurseInterviewModal && (
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-lg w-full animate-fade-in-up border border-slate-200">
@@ -1398,6 +1781,7 @@
                         </div>
                     )}
 
+                    {/* 産業医・5者面談 希望日時モーダル */}
                     {showDoctorInterviewModal && (
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-lg w-full animate-fade-in-up border border-slate-200">
@@ -1420,13 +1804,14 @@
                         </div>
                     )}
 
+                    {/* 確認ダイアログモーダル */}
                     {confirmDialog.isOpen && (
-                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
+                        <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[350] backdrop-blur-sm p-4">
                             <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-sm w-full animate-fade-in-up border border-slate-200">
                                 <div className="flex items-start gap-3 mb-6"><AlertTriangle className="w-6 h-6 text-orange-500 flex-shrink-0"/><p className="font-bold text-slate-800 leading-relaxed whitespace-pre-wrap">{confirmDialog.message}</p></div>
                                 <div className="flex justify-end gap-3">
                                     <button onClick={() => setConfirmDialog({isOpen:false})} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition-colors">キャンセル</button>
-                                    <button onClick={() => { confirmDialog.onConfirm(); setConfirmDialog({isOpen:false}); }} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors shadow-sm">実行</button>
+                                    <button onClick={() => { if (confirmDialog.onConfirm) confirmDialog.onConfirm(); setConfirmDialog({isOpen:false}); }} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-colors shadow-sm">実行</button>
                                 </div>
                             </div>
                         </div>
@@ -1473,8 +1858,8 @@
                                                     <tbody className="divide-y divide-slate-100">
                                                         {cases.map(c => {
                                                             const idleDays = getIdleDays(c.lastUpdated);
-                                                            const threshold = getIdleThreshold(c.phase);
-                                                            const isIdle = idleDays >= threshold && c.phase < 5;
+                                                            const idleThreshold = getIdleThreshold(c.phase);
+                                                            const isIdle = idleDays >= idleThreshold && (c.phase || 0) < 5;
                                                             return (
                                                             <tr key={c.id} className="hover:bg-blue-50 transition-colors">
                                                                 <td className="p-4 text-slate-600">{c.empId || '未入力'}</td>
@@ -1488,6 +1873,11 @@
                                                                              (c.phase === 3 && c.pg_step === 0) ? '就業支援PG (有休相談中)' :
                                                                              PHASES[c.phase || 0]?.title}
                                                                         </span>
+                                                                        {currentRole !== 'manager' && Array.isArray(c.medical_certificates) && c.medical_certificates.length > 0 && (
+                                                                            <span className="text-[10px] bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded font-bold flex items-center gap-1">
+                                                                                <FileText className="w-3 h-3"/> 診断書提出済: {c.medical_certificates.length}件
+                                                                            </span>
+                                                                        )}
                                                                         {isIdle && <span className="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded font-bold shadow-sm flex items-center gap-1 animate-pulse"><AlertTriangle className="w-3 h-3"/> 放置警告: {idleDays}日未更新</span>}
                                                                     </div>
                                                                 </td>
@@ -1498,7 +1888,7 @@
                                                                     </div>
                                                                 </td>
                                                             </tr>
-                                                            )
+                                                            );
                                                         })}
                                                     </tbody>
                                                 </table>
@@ -1599,6 +1989,12 @@
                                         </div>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
+                                        {canAccessCert && (
+                                            <button onClick={() => setShowCertModal(true)} className="text-sm bg-teal-50 hover:bg-teal-100 text-teal-800 px-3.5 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-colors border border-teal-300 shadow-sm">
+                                                <Upload className="w-4 h-4"/> 診断書提出・閲覧
+                                                {medicalCertificates.length > 0 && <span className="bg-teal-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">{medicalCertificates.length}</span>}
+                                            </button>
+                                        )}
                                         {canViewShobyo && (
                                             <button onClick={() => setShowShobyoModal(true)} className="text-sm bg-amber-50 hover:bg-amber-100 text-amber-800 px-3.5 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-colors border border-amber-300 shadow-sm">
                                                 <FileText className="w-4 h-4"/> 傷病手当・FAX管理
@@ -1617,7 +2013,9 @@
                                         {(isAdmin || canEdit('employee')) && (
                                             <button onClick={resetData} className="text-sm bg-red-50 hover:bg-red-100 text-red-600 px-3.5 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-red-200" title="⚠️全データ初期化(削除)"><RotateCcw className="w-4 h-4"/><span className="hidden sm:inline">リセット</span></button>
                                         )}
-                                        <button onClick={() => setCurrentView('dashboard')} className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-slate-300"><ChevronLeft className="w-4 h-4"/> 一覧へ戻る</button>
+                                        {currentRole !== 'employee' && (
+                                            <button onClick={() => setCurrentView('dashboard')} className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-slate-300"><ChevronLeft className="w-4 h-4"/> 一覧へ戻る</button>
+                                        )}
                                     </div>
                                 </div>
 
@@ -1637,7 +2035,6 @@
                                         現在のステータス: {actualPhase === 5 ? '完了' : PHASES[actualPhase]?.title}
                                     </h2>
                                     <div className="relative pt-8 pb-2 cursor-default">
-                                        {/* プログレスバーの線 */}
                                         <div className="absolute top-4 left-0 w-full h-2 rounded bg-slate-200 z-0 overflow-hidden">
                                             <div style={{ width: `${(actualPhase / 5) * 100}%` }} className="h-full bg-blue-500 transition-all duration-500"></div>
                                         </div>
@@ -1743,7 +2140,6 @@
                                                     </label>
                                                 </div>
 
-                                                {/* 本人提出ボタン */}
                                                 {canEdit0 && !formData.phase0_submitted && actualPhase === 0 && (
                                                     <div className="flex justify-center mt-8">
                                                         <button onClick={() => { 
@@ -1769,7 +2165,6 @@
                                                     </div>
                                                 )}
 
-                                                {/* 保健師アサインUI */}
                                                 {actualPhase === 0 && formData.phase0_submitted && (canEdit('ohp') || isAdmin) && (
                                                     <div className="mt-8 p-6 bg-blue-50 border border-blue-200 rounded-xl shadow-sm animate-fade-in-up">
                                                         <h3 className="font-bold text-blue-900 mb-3 flex items-center gap-2"><User className="w-5 h-5"/> 保健師確認・担当上司のアサイン</h3>
@@ -2309,7 +2704,7 @@
                                                                         ) : metrics.totalDays > 0 && (
                                                                             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-2 text-emerald-800 text-xs sm:text-sm font-bold">
                                                                                 <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0"/>
-                                                                                <span>最初の3日間（傷病手当金の待期期間）を有休でカバーできています（4日目以降から支給対象）。</span>
+                                                                                <span>最初の3日間（傷病手当金の待期期間）を有休でカバーできています（4日目以降以降から支給対象）。</span>
                                                                             </div>
                                                                         )}
                                                                         {(metrics.remainPaid < 0 || metrics.remainLS < 0) && (
