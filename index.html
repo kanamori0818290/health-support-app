@@ -184,6 +184,114 @@
             return list;
         };
 
+        // 休業開始日から対象日までの経過日数（1日目起算）を算出するヘルパー
+        const getDayOffsetFromStart = (startStr, targetStr) => {
+            if (!startStr || !targetStr) return null;
+            const [sy, sm, sd] = startStr.split('-').map(Number);
+            const [ty, tm, td] = targetStr.split('-').map(Number);
+            if (!sy || !ty) return null;
+            const sDate = new Date(sy, sm - 1, sd);
+            const tDate = new Date(ty, tm - 1, td);
+            return Math.floor((tDate - sDate) / 86400000) + 1;
+        };
+
+        // 30分間隔の時間選択肢 (08:00〜19:30)
+        const TIME_SLOTS_30MIN = (() => {
+            const slots = [];
+            for (let h = 8; h <= 19; h++) {
+                const hh = String(h).padStart(2, '0');
+                slots.push(`${hh}:00`, `${hh}:30`);
+            }
+            return slots;
+        })();
+
+        // 日付文字列に日数を加算するヘルパー
+        const addDaysToDateStr = (dateStr, daysToAdd) => {
+            if (!dateStr) return '';
+            const [y, m, d] = dateStr.split('-').map(Number);
+            if (!y || !m || !d) return '';
+            const dt = new Date(y, m - 1, d + daysToAdd);
+            const yy = dt.getFullYear();
+            const mm = String(dt.getMonth() + 1).padStart(2, '0');
+            const dd = String(dt.getDate()).padStart(2, '0');
+            return `${yy}-${mm}-${dd}`;
+        };
+
+        // 入社年月日と休職開始基準日から満勤続年数・休職可能期間を算出するヘルパー
+        const calculateTenureAndLeaveLimit = (hireDateStr, kyushokuBaseDateStr) => {
+            if (!hireDateStr) return null;
+            const [hy, hm, hd] = hireDateStr.split('-').map(Number);
+            if (!hy || !hm || !hd) return null;
+
+            const hireDate = new Date(hy, hm - 1, hd);
+
+            let refDate;
+            if (kyushokuBaseDateStr) {
+                const [ky, km, kd] = kyushokuBaseDateStr.split('-').map(Number);
+                refDate = new Date(ky, km - 1, kd);
+            } else {
+                const now = new Date();
+                refDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            }
+
+            if (refDate < hireDate) {
+                return {
+                    years: 0,
+                    months: 0,
+                    tenureText: '0年0か月（基準日が入社日前）',
+                    categoryLabel: '満3年未満',
+                    leaveMonths: 9,
+                    kyushokuStartStr: kyushokuBaseDateStr || '',
+                    expiryDateStr: ''
+                };
+            }
+
+            const by = refDate.getFullYear();
+            const bm = refDate.getMonth() + 1;
+            const bd = refDate.getDate();
+
+            let years = by - hy;
+            let months = bm - hm;
+            if (bd < hd) {
+                months -= 1;
+            }
+            if (months < 0) {
+                years -= 1;
+                months += 12;
+            }
+
+            let categoryLabel = '満3年未満';
+            let leaveMonths = 9;
+            if (years >= 10) {
+                categoryLabel = '満10年以上';
+                leaveMonths = 33;
+            } else if (years >= 3) {
+                categoryLabel = '満3年以上〜満10年未満';
+                leaveMonths = 21;
+            }
+
+            // 休職開始日からの休職満了予定日（目安）を算出
+            let expiryDateStr = '';
+            if (kyushokuBaseDateStr) {
+                const expDate = new Date(by, bm - 1 + leaveMonths, bd);
+                expDate.setDate(expDate.getDate() - 1);
+                const ey = expDate.getFullYear();
+                const em = String(expDate.getMonth() + 1).padStart(2, '0');
+                const ed = String(expDate.getDate()).padStart(2, '0');
+                expiryDateStr = `${ey}-${em}-${ed}`;
+            }
+
+            return {
+                years,
+                months,
+                tenureText: `満${years}年${months}か月`,
+                categoryLabel,
+                leaveMonths,
+                kyushokuStartStr: kyushokuBaseDateStr || '',
+                expiryDateStr
+            };
+        };
+
         function HealthSupportPortal() {
             const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [currentRole, setCurrentRole] = useState('');
@@ -215,7 +323,11 @@
             
             const [showNurseInterviewModal, setShowNurseInterviewModal] = useState(false);
             const [showDoctorInterviewModal, setShowDoctorInterviewModal] = useState(false);
-            const [interviewDates, setInterviewDates] = useState({ date1: '', date2: '', date3: '' });
+            const [interviewDates, setInterviewDates] = useState({
+                date1: '', time1: '10:00',
+                date2: '', time2: '10:00',
+                date3: '', time3: '10:00'
+            });
             const [notifyEmail, setNotifyEmail] = useState(''); 
 
             const [emailDraft, setEmailDraft] = useState(null);
@@ -772,7 +884,7 @@
             const todayStr = new Date().toISOString().split('T')[0];
             const defaultEndStr = (() => {
                 const d = new Date();
-                d.setDate(d.getDate() + 65);
+                d.setDate(d.getDate() + 95);
                 return d.toISOString().split('T')[0];
             })();
 
@@ -783,52 +895,245 @@
             const simSelectedPattern = formData.sim_selected_pattern !== undefined ? formData.sim_selected_pattern : 0;
 
             const defaultSimPatterns = [
-                { name: 'パターンA（待期3日のみ有休）', inputMode: 'calendar', calendarMap: {}, manualPaid: 3, manualLS: 0, manualAbsence: 62 },
-                { name: 'パターンB（有休＋LSを積極消化）', inputMode: 'calendar', calendarMap: {}, manualPaid: 20, manualLS: 5, manualAbsence: 40 },
-                { name: 'パターンC（欠勤60日未満に調整）', inputMode: 'manual', calendarMap: {}, manualPaid: 10, manualLS: 2, manualAbsence: 53 }
+                { name: 'パターンA（①待期3日有休 → ②私傷病欠勤60日 → ③休職）', inputMode: 'calendar', plannedPaid: 3, plannedLS: 0, calendarMap: {}, manualPaid: 3, manualLS: 0, manualAbsence: 60, manualKyushoku: 10 },
+                { name: 'パターンB（①有休・LS消化で開始日を後ろへずらす）', inputMode: 'calendar', plannedPaid: 15, plannedLS: 5, calendarMap: {}, manualPaid: 15, manualLS: 5, manualAbsence: 55, manualKyushoku: 0 },
+                { name: 'パターンC（①有休・LS全消化 → ②私傷病欠勤60日以内）', inputMode: 'manual', plannedPaid: 20, plannedLS: 5, calendarMap: {}, manualPaid: 20, manualLS: 5, manualAbsence: 60, manualKyushoku: 0 }
             ];
             const simPatterns = Array.isArray(formData.sim_patterns) && formData.sim_patterns.length === 3
                 ? formData.sim_patterns
                 : defaultSimPatterns;
 
+            // 指定した有休・LS日数から「①有休・LS → ②私傷病欠勤(1〜60日) → ③休職(61日目〜)」のカレンダーマップを生成するヘルパー
+            const buildCalendarMapFromLeavePlan = (startStr, endStr, paidCount, lsCount) => {
+                const safePaid = Math.max(0, Number(paidCount) || 0);
+                const safeLS = Math.max(0, Number(lsCount) || 0);
+                const minNeededEnd = addDaysToDateStr(startStr, Math.max(120, (safePaid + safeLS + 70) * 2));
+                const effectiveEnd = (!endStr || endStr < minNeededEnd) ? minNeededEnd : endStr;
+                const range = getDateRangeStrings(startStr, effectiveEnd);
+
+                const freshMap = {};
+                let remPaid = safePaid;
+                let remLS = safeLS;
+                let absCount = 0;
+
+                for (const ds of range) {
+                    if (remPaid > 0) {
+                        if (isCompanyWorkingDay(ds)) {
+                            freshMap[ds] = 'paid';
+                            remPaid--;
+                        }
+                    } else if (remLS > 0) {
+                        if (isCompanyWorkingDay(ds)) {
+                            freshMap[ds] = 'ls';
+                            remLS--;
+                        }
+                    } else {
+                        if (endStr && ds > endStr) break;
+                        if (absCount < 60) {
+                            if (isCompanyWorkingDay(ds)) {
+                                freshMap[ds] = 'absence';
+                                absCount++;
+                            }
+                        } else {
+                            freshMap[ds] = 'kyushoku';
+                        }
+                    }
+                }
+                return freshMap;
+            };
+
+            // ①有休・LS終了後の次の営業日（私傷病欠勤の開始予定日）を算出するヘルパー
+            const getNextWorkingDayAfter = (startStr, lastLeaveDateStr) => {
+                let cursor = lastLeaveDateStr ? addDaysToDateStr(lastLeaveDateStr, 1) : startStr;
+                if (!cursor) return '';
+                for (let i = 0; i < 30; i++) {
+                    if (isCompanyWorkingDay(cursor)) return cursor;
+                    cursor = addDaysToDateStr(cursor, 1);
+                }
+                return cursor;
+            };
+
+            // パターンごとの①有休・LS → ②私傷病欠勤(1〜60日) → ③休職(61日目〜) の詳細集計
             const getPatternMetrics = (pat) => {
                 if (pat.inputMode === 'manual') {
                     const usedPaid = Number(pat.manualPaid) || 0;
                     const usedLS = Number(pat.manualLS) || 0;
                     const absenceDays = Number(pat.manualAbsence) || 0;
+                    const kyushokuDays = Number(pat.manualKyushoku) || 0;
+                    const over60Absence = absenceDays > 60;
+                    const kyushokuBefore60 = kyushokuDays > 0 && absenceDays < 60;
+                    const reaches61Days = kyushokuDays >= 1 || absenceDays >= 61;
+
+                    const tempMap = buildCalendarMapFromLeavePlan(simStartDate, simEndDate, usedPaid, usedLS);
+                    const leaveDates = Object.keys(tempMap).filter(k => tempMap[k] === 'paid' || tempMap[k] === 'ls').sort();
+                    const step1StartDate = leaveDates[0] || '';
+                    const step1EndDate = leaveDates[leaveDates.length - 1] || '';
+                    const absenceStartDate = getNextWorkingDayAfter(simStartDate, step1EndDate);
+
+                    const estKyushokuOffset = Math.round((Math.min(absenceDays, 60) * 7) / 5);
+                    const kyushokuStartDate = reaches61Days ? addDaysToDateStr(absenceStartDate, estKyushokuOffset) : '';
                     return {
                         usedPaid,
                         usedLS,
                         absenceDays,
-                        totalDays: usedPaid + usedLS + absenceDays,
+                        kyushokuDays,
+                        totalDays: usedPaid + usedLS + absenceDays + kyushokuDays,
                         remainPaid: simPaidLeave - usedPaid,
-                        remainLS: simLifeSupport - usedLS
+                        remainLS: simLifeSupport - usedLS,
+                        dayIndexMap: {},
+                        step1StartDate,
+                        step1EndDate,
+                        absenceStartDate,
+                        absence60EndDate: '',
+                        kyushokuStartDate,
+                        reaches61Days,
+                        over60Absence,
+                        kyushokuBefore60,
+                        leaveAfterAbsenceOrKyushoku: false
                     };
                 }
+
                 const cmap = pat.calendarMap || {};
+                const sortedDates = Object.keys(cmap).sort();
                 let usedPaid = 0;
                 let usedLS = 0;
                 let absenceDays = 0;
-                Object.values(cmap).forEach(v => {
-                    if (v === 'paid') usedPaid++;
-                    else if (v === 'ls') usedLS++;
-                    else if (v === 'absence') absenceDays++;
-                });
+                let kyushokuDays = 0;
+                const dayIndexMap = {};
+
+                let phaseStarted = 1;
+                let step1StartDate = '';
+                let step1EndDate = '';
+                let firstAbsenceDate = '';
+                let absence60EndDate = '';
+                let kyushokuStartDate = '';
+                let over60Absence = false;
+                let kyushokuBefore60 = false;
+                let leaveAfterAbsenceOrKyushoku = false;
+
+                for (const dStr of sortedDates) {
+                    const v = cmap[dStr];
+                    if (v === 'paid' || v === 'ls') {
+                        if (v === 'paid') usedPaid++;
+                        if (v === 'ls') usedLS++;
+                        if (!step1StartDate) step1StartDate = dStr;
+                        step1EndDate = dStr;
+                        if (phaseStarted >= 2) {
+                            leaveAfterAbsenceOrKyushoku = true;
+                            dayIndexMap[dStr] = {
+                                phase: 'step1',
+                                invalid: phaseStarted === 3 ? '休職中は有休・LS不可' : '欠勤開始後の有休・LS'
+                            };
+                        } else {
+                            dayIndexMap[dStr] = { phase: 'step1' };
+                        }
+                    } else if (v === 'absence') {
+                        if (phaseStarted < 2) phaseStarted = 2;
+                        if (!firstAbsenceDate) firstAbsenceDate = dStr;
+                        absenceDays++;
+                        if (absenceDays > 60) {
+                            over60Absence = true;
+                            dayIndexMap[dStr] = {
+                                phase: 'step2',
+                                absenceNum: absenceDays,
+                                invalid: `欠勤${absenceDays}日目(60日超過)`
+                            };
+                        } else {
+                            dayIndexMap[dStr] = {
+                                phase: 'step2',
+                                absenceNum: absenceDays
+                            };
+                            if (absenceDays === 60) {
+                                absence60EndDate = dStr;
+                                phaseStarted = 3;
+                                kyushokuStartDate = addDaysToDateStr(dStr, 1);
+                            }
+                        }
+                    } else if (v === 'kyushoku') {
+                        kyushokuDays++;
+                        if (!kyushokuStartDate) kyushokuStartDate = dStr;
+                        if (absenceDays < 60) {
+                            kyushokuBefore60 = true;
+                            dayIndexMap[dStr] = {
+                                phase: 'step3',
+                                kyushokuNum: kyushokuDays,
+                                invalid: '欠勤60日未満で休職選択'
+                            };
+                        } else {
+                            phaseStarted = 3;
+                            dayIndexMap[dStr] = {
+                                phase: 'step3',
+                                kyushokuNum: kyushokuDays
+                            };
+                        }
+                    }
+                }
+
+                const absenceStartDate = firstAbsenceDate || getNextWorkingDayAfter(simStartDate, step1EndDate);
+                const reaches61Days = kyushokuDays >= 1 || absenceDays >= 61;
+
                 return {
                     usedPaid,
                     usedLS,
                     absenceDays,
-                    totalDays: usedPaid + usedLS + absenceDays,
+                    kyushokuDays,
+                    totalDays: usedPaid + usedLS + absenceDays + kyushokuDays,
                     remainPaid: simPaidLeave - usedPaid,
-                    remainLS: simLifeSupport - usedLS
+                    remainLS: simLifeSupport - usedLS,
+                    dayIndexMap,
+                    step1StartDate,
+                    step1EndDate,
+                    absenceStartDate,
+                    absence60EndDate,
+                    kyushokuStartDate,
+                    reaches61Days,
+                    over60Absence,
+                    kyushokuBefore60,
+                    leaveAfterAbsenceOrKyushoku
                 };
             };
 
+            const activeOrSelectedMetrics = getPatternMetrics(simPatterns[simSelectedPattern] || simPatterns[0]);
+            const tenureBaseDate = activeOrSelectedMetrics.kyushokuStartDate || addDaysToDateStr(activeOrSelectedMetrics.absenceStartDate || simStartDate, 84);
+            const tenureInfo = calculateTenureAndLeaveLimit(formData.hire_date, tenureBaseDate);
+
             const updateSimBase = (field, value) => {
                 const updates = { [field]: value };
+                const nextStart = field === 'sim_start_date' ? value : simStartDate;
+                const nextEnd = field === 'sim_end_date' ? value : simEndDate;
+                const nextMaxPaid = field === 'sim_paid_leave' ? Math.max(0, Number(value) || 0) : simPaidLeave;
+                const nextMaxLS = field === 'sim_life_support' ? Math.max(0, Number(value) || 0) : simLifeSupport;
+
                 if (field === 'sim_start_date' && value) {
                     const [y, m] = value.split('-').map(Number);
                     if (y && m) setSimCalMonth({ year: y, month: m });
+                }
+                if (field === 'sim_paid_leave' || field === 'sim_life_support') {
+                    updates.sim_patterns = simPatterns.map((p) => {
+                        const clampedPaid = Math.min(nextMaxPaid, p.plannedPaid !== undefined ? Number(p.plannedPaid) || 0 : 0);
+                        const clampedLS = Math.min(nextMaxLS, p.plannedLS !== undefined ? Number(p.plannedLS) || 0 : 0);
+                        const clampedManualPaid = Math.min(nextMaxPaid, Number(p.manualPaid) || 0);
+                        const clampedManualLS = Math.min(nextMaxLS, Number(p.manualLS) || 0);
+                        const newMap = p.inputMode !== 'manual'
+                            ? buildCalendarMapFromLeavePlan(nextStart, nextEnd, clampedPaid, clampedLS)
+                            : p.calendarMap;
+                        return {
+                            ...p,
+                            plannedPaid: clampedPaid,
+                            plannedLS: clampedLS,
+                            manualPaid: clampedManualPaid,
+                            manualLS: clampedManualLS,
+                            calendarMap: newMap
+                        };
+                    });
+                } else if ((field === 'sim_start_date' || field === 'sim_end_date') && nextStart) {
+                    const targetPat = simPatterns[simActiveTab];
+                    if (targetPat && targetPat.inputMode !== 'manual') {
+                        const pPaid = Math.min(nextMaxPaid, targetPat.plannedPaid !== undefined ? targetPat.plannedPaid : Object.values(targetPat.calendarMap || {}).filter(v => v === 'paid').length);
+                        const pLS = Math.min(nextMaxLS, targetPat.plannedLS !== undefined ? targetPat.plannedLS : Object.values(targetPat.calendarMap || {}).filter(v => v === 'ls').length);
+                        const newMap = buildCalendarMapFromLeavePlan(nextStart, nextEnd, pPaid, pLS);
+                        updates.sim_patterns = simPatterns.map((p, i) => i === simActiveTab ? { ...p, plannedPaid: pPaid, plannedLS: pLS, calendarMap: newMap } : p);
+                    }
                 }
                 setFormData(prev => ({ ...prev, ...updates }));
             };
@@ -838,15 +1143,69 @@
                 setFormData(prev => ({ ...prev, sim_patterns: updated }));
             };
 
+            const applyLeaveDaysShift = (idx, newPaidRaw, newLSRaw) => {
+                if (!canEditSim) return;
+                const rawPaid = Math.max(0, parseInt(newPaidRaw, 10) || 0);
+                const rawLS = Math.max(0, parseInt(newLSRaw, 10) || 0);
+                if (rawPaid > simPaidLeave) {
+                    showToast(`有休残日数（${simPaidLeave}日）を超える日数は入力できません`);
+                }
+                if (rawLS > simLifeSupport) {
+                    showToast(`ライフサポート残日数（${simLifeSupport}日）を超える日数は入力できません`);
+                }
+                const newPaid = Math.min(simPaidLeave, rawPaid);
+                const newLS = Math.min(simLifeSupport, rawLS);
+                const newMap = buildCalendarMapFromLeavePlan(simStartDate, simEndDate, newPaid, newLS);
+                updateSimPattern(idx, {
+                    plannedPaid: newPaid,
+                    plannedLS: newLS,
+                    manualPaid: newPaid,
+                    manualLS: newLS,
+                    calendarMap: newMap
+                });
+            };
+
             const toggleCalendarDay = (idx, dateStr) => {
                 if (!canEditSim) return;
                 const pat = simPatterns[idx];
                 const cmap = { ...(pat.calendarMap || {}) };
                 const cur = cmap[dateStr] || '';
-                const next = cur === '' ? 'paid' : cur === 'paid' ? 'ls' : cur === 'ls' ? 'absence' : '';
+                const currentPaidCount = Object.values(cmap).filter(v => v === 'paid').length;
+                const currentLSCount = Object.values(cmap).filter(v => v === 'ls').length;
+
+                let next = '';
+                if (cur === '') {
+                    if (currentPaidCount < simPaidLeave) {
+                        next = 'paid';
+                    } else if (currentLSCount < simLifeSupport) {
+                        next = 'ls';
+                    } else {
+                        next = 'absence';
+                    }
+                } else if (cur === 'paid') {
+                    if (currentLSCount < simLifeSupport) {
+                        next = 'ls';
+                    } else {
+                        next = 'absence';
+                    }
+                } else if (cur === 'ls') {
+                    next = 'absence';
+                } else if (cur === 'absence') {
+                    next = 'kyushoku';
+                } else {
+                    next = '';
+                }
+
                 if (next === '') delete cmap[dateStr];
                 else cmap[dateStr] = next;
-                updateSimPattern(idx, { calendarMap: cmap });
+
+                const newPaidCount = Object.values(cmap).filter(v => v === 'paid').length;
+                const newLSCount = Object.values(cmap).filter(v => v === 'ls').length;
+                updateSimPattern(idx, {
+                    calendarMap: cmap,
+                    plannedPaid: newPaidCount,
+                    plannedLS: newLSCount
+                });
             };
 
             const applyCalendarBulk = (idx, mode) => {
@@ -856,26 +1215,37 @@
                 const range = getDateRangeStrings(simStartDate, simEndDate);
 
                 if (mode === 'first3_paid') {
-                    let count = 0;
+                    applyLeaveDaysShift(idx, 3, 0);
+                    return;
+                } else if (mode === 'use_all_leave') {
+                    applyLeaveDaysShift(idx, simPaidLeave, simLifeSupport);
+                    return;
+                } else if (mode === 'fill_step2_absence60') {
+                    let existingAbsence = Object.values(cmap).filter(v => v === 'absence').length;
+                    const leaveDates = Object.keys(cmap).filter(k => cmap[k] === 'paid' || cmap[k] === 'ls').sort();
+                    const lastLeaveDate = leaveDates.length > 0 ? leaveDates[leaveDates.length - 1] : '';
+
                     for (const ds of range) {
-                        if (isCompanyWorkingDay(ds)) {
-                            cmap[ds] = 'paid';
-                            count++;
-                            if (count >= 3) break;
-                        }
-                    }
-                } else if (mode === 'fill_weekdays_absence') {
-                    for (const ds of range) {
+                        if (lastLeaveDate && ds <= lastLeaveDate) continue;
                         if (!cmap[ds] && isCompanyWorkingDay(ds)) {
-                            cmap[ds] = 'absence';
+                            if (existingAbsence < 60) {
+                                cmap[ds] = 'absence';
+                                existingAbsence++;
+                            }
                         }
                     }
-                } else if (mode === 'fill_alldays_absence') {
+                } else if (mode === 'fill_step3_kyushoku') {
+                    const absenceDates = Object.keys(cmap).filter(k => cmap[k] === 'absence').sort();
+                    const lastAbsenceDate = absenceDates.length > 0 ? absenceDates[absenceDates.length - 1] : '';
                     for (const ds of range) {
+                        if (lastAbsenceDate && ds <= lastAbsenceDate) continue;
                         if (!cmap[ds]) {
-                            cmap[ds] = 'absence';
+                            cmap[ds] = 'kyushoku';
                         }
                     }
+                } else if (mode === 'clear') {
+                    updateSimPattern(idx, { calendarMap: {}, plannedPaid: 0, plannedLS: 0 });
+                    return;
                 }
                 updateSimPattern(idx, { calendarMap: cmap });
             };
@@ -1015,33 +1385,52 @@
                 document.body.appendChild(link); link.click(); document.body.removeChild(link);
             };
 
+            const formatInterviewSlot = (dateVal, timeVal) => {
+                if (!dateVal) return '未指定';
+                return `${dateVal} ${timeVal || ''}`.trim();
+            };
+
+            const resetInterviewDates = () => {
+                setInterviewDates({
+                    date1: '', time1: '10:00',
+                    date2: '', time2: '10:00',
+                    date3: '', time3: '10:00'
+                });
+            };
+
             const submitNurseInterview = () => {
-                const logText = `【システム通知】保健師面談の希望が申請されました。\n第1希望: ${interviewDates.date1}\n第2希望: ${interviewDates.date2}\n第3希望: ${interviewDates.date3}`;
+                const slot1 = formatInterviewSlot(interviewDates.date1, interviewDates.time1);
+                const slot2 = formatInterviewSlot(interviewDates.date2, interviewDates.time2);
+                const slot3 = formatInterviewSlot(interviewDates.date3, interviewDates.time3);
+                const logText = `【システム通知】保健師面談の希望が申請されました。\n第1希望: ${slot1}\n第2希望: ${slot2}\n第3希望: ${slot3}`;
                 const newLog = { date: new Date().toLocaleString('ja-JP'), text: logText, author: 'システム', role: 'system' };
                 saveData({ interview_requested: 'nurse', contact_logs: [...(formData.contact_logs || []), newLog] });
                 setShowNurseInterviewModal(false);
                 
                 if(notifyEmail) {
                     const subject = `【就業支援ポータル】保健師面談の調整 (${formData.name}さん)`;
-                    const body = `${formData.name} 様の保健師面談の調整依頼が届きました。\n\n第1希望: ${interviewDates.date1}\n第2希望: ${interviewDates.date2}\n第3希望: ${interviewDates.date3}\n\nポータルにログインして詳細を確認してください。\n▼ポータルURL\n${getPortalUrl()}`;
+                    const body = `${formData.name} 様の保健師面談の調整依頼が届きました。\n\n第1希望: ${slot1}\n第2希望: ${slot2}\n第3希望: ${slot3}\n\nポータルにログインして詳細を確認してください。\n▼ポータルURL\n${getPortalUrl()}`;
                     openMailClient(notifyEmail, subject, body);
                 }
-                setInterviewDates({ date1: '', date2: '', date3: '' });
+                resetInterviewDates();
                 setNotifyEmail('');
             };
 
             const submitDoctorInterview = () => {
-                const logText = `【システム通知】産業医・5者面談の希望が申請されました。\n第1希望: ${interviewDates.date1}\n第2希望: ${interviewDates.date2}\n第3希望: ${interviewDates.date3}`;
+                const slot1 = formatInterviewSlot(interviewDates.date1, interviewDates.time1);
+                const slot2 = formatInterviewSlot(interviewDates.date2, interviewDates.time2);
+                const slot3 = formatInterviewSlot(interviewDates.date3, interviewDates.time3);
+                const logText = `【システム通知】産業医・5者面談の希望が申請されました。\n第1希望: ${slot1}\n第2希望: ${slot2}\n第3希望: ${slot3}`;
                 const newLog = { date: new Date().toLocaleString('ja-JP'), text: logText, author: 'システム', role: 'system' };
                 saveData({ interview_requested: 'doctor', contact_logs: [...(formData.contact_logs || []), newLog] });
                 setShowDoctorInterviewModal(false);
                 
                 if(notifyEmail) {
                     const subject = `【就業支援ポータル】産業医・5者面談の調整 (${formData.name}さん)`;
-                    const body = `${formData.name} 様の産業医・5者面談の調整依頼が届きました。\n\n第1希望: ${interviewDates.date1}\n第2希望: ${interviewDates.date2}\n第3希望: ${interviewDates.date3}\n\nポータルにログインして詳細を確認してください。\n▼ポータルURL\n${getPortalUrl()}`;
+                    const body = `${formData.name} 様の産業医・5者面談の調整依頼が届きました。\n\n第1希望: ${slot1}\n第2希望: ${slot2}\n第3希望: ${slot3}\n\nポータルにログインして詳細を確認してください。\n▼ポータルURL\n${getPortalUrl()}`;
                     openMailClient(notifyEmail, subject, body);
                 }
-                setInterviewDates({ date1: '', date2: '', date3: '' });
+                resetInterviewDates();
                 setNotifyEmail('');
             };
 
@@ -1561,7 +1950,7 @@
                                 <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-sky-50">
                                     <div>
                                         <h3 className="text-lg sm:text-xl font-bold text-slate-800 flex items-center gap-2">
-                                            <Calendar className="w-6 h-6 text-sky-600"/> 有休・ライフサポート・休業シミュレーション記録
+                                            <Calendar className="w-6 h-6 text-sky-600"/> 私傷病休業シミュレーション記録（有休・LS・欠勤・休職）
                                         </h3>
                                         <p className="text-xs text-slate-600 mt-0.5">
                                             保有有休: <b>{simPaidLeave}日</b> ／ ライフサポート: <b>{simLifeSupport}日</b> ／ 予定期間: <b>{simStartDate} 〜 {simEndDate}</b>
@@ -1575,12 +1964,12 @@
                                             <thead className="bg-slate-100 border-b border-slate-200 text-slate-700">
                                                 <tr>
                                                     <th className="p-3">パターン</th>
-                                                    <th className="p-3">入力方式</th>
-                                                    <th className="p-3">使用有休</th>
-                                                    <th className="p-3">使用LS</th>
-                                                    <th className="p-3">残有休</th>
-                                                    <th className="p-3">欠勤日数</th>
-                                                    <th className="p-3">翌年有休 (60日基準)</th>
+                                                    <th className="p-3">① 有休 / LS</th>
+                                                    <th className="p-3">② 私傷病欠勤 開始日</th>
+                                                    <th className="p-3">② 私傷病欠勤(1〜60日)</th>
+                                                    <th className="p-3">③ 休職(61日〜)</th>
+                                                    <th className="p-3">私傷病休業 合計</th>
+                                                    <th className="p-3">翌年有休 (61日基準)</th>
                                                     <th className="p-3">待期3日カバー</th>
                                                 </tr>
                                             </thead>
@@ -1594,12 +1983,16 @@
                                                                 {['A', 'B', 'C'][idx]}: {pat.name}
                                                                 {isSelected && <span className="ml-2 bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.5 rounded font-black">採用中</span>}
                                                             </td>
-                                                            <td className="p-3 text-slate-500">{pat.inputMode === 'manual' ? '日数直接入力' : 'カレンダー選択'}</td>
-                                                            <td className="p-3 text-emerald-700 font-bold">{m.usedPaid}日</td>
-                                                            <td className="p-3 text-indigo-700 font-bold">{m.usedLS}日</td>
-                                                            <td className={`p-3 font-bold ${m.remainPaid < 0 ? 'text-red-600' : 'text-slate-700'}`}>{m.remainPaid}日</td>
-                                                            <td className={`p-3 font-black ${m.absenceDays >= 60 ? 'text-red-600' : 'text-slate-800'}`}>{m.absenceDays}日</td>
-                                                            <td className="p-3">{m.absenceDays >= 60 ? <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold">13日へ減少</span> : <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold">21日維持</span>}</td>
+                                                            <td className="p-3 text-emerald-700 font-bold">
+                                                                有休 {m.usedPaid}日 / LS {m.usedLS}日
+                                                            </td>
+                                                            <td className="p-3 font-bold text-rose-700">
+                                                                {m.absenceStartDate || '未定'}
+                                                            </td>
+                                                            <td className="p-3 font-black text-rose-700">{m.absenceDays}日</td>
+                                                            <td className={`p-3 font-black ${m.reaches61Days ? 'text-red-600' : 'text-purple-700'}`}>{m.kyushokuDays}日</td>
+                                                            <td className="p-3 font-black text-slate-800">{m.totalDays}日</td>
+                                                            <td className="p-3">{m.reaches61Days ? <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold">13日へ減少</span> : <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold">21日維持</span>}</td>
                                                             <td className="p-3">{m.usedPaid >= 3 ? <span className="text-emerald-600 font-bold">○ カバー済</span> : <span className="text-orange-600 font-bold">△ 3日未満</span>}</td>
                                                         </tr>
                                                     );
@@ -1616,15 +2009,19 @@
                                             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                                                 <h4 className="font-bold text-slate-700 text-xs mb-3">採用プラン（{selPat.name}）のカレンダー割り当て日付一覧</h4>
                                                 <div className="flex flex-wrap gap-1.5">
-                                                    {entries.map(([dStr, st]) => (
-                                                        <span key={dStr} className={`text-[11px] px-2 py-1 rounded font-bold ${
-                                                            st === 'paid' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
-                                                            st === 'ls' ? 'bg-indigo-100 text-indigo-800 border border-indigo-200' :
-                                                            'bg-rose-100 text-rose-800 border border-rose-200'
-                                                        }`}>
-                                                            {dStr.slice(5).replace('-', '/')} ({st === 'paid' ? '有休' : st === 'ls' ? 'LS' : '欠勤'})
-                                                        </span>
-                                                    ))}
+                                                    {entries.map(([dStr, st]) => {
+                                                        const stLabel = st === 'paid' ? '有休' : st === 'ls' ? 'LS' : st === 'kyushoku' ? '休職' : '私傷病欠勤';
+                                                        return (
+                                                            <span key={dStr} className={`text-[11px] px-2 py-1 rounded font-bold ${
+                                                                st === 'paid' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' :
+                                                                st === 'ls' ? 'bg-indigo-100 text-indigo-800 border border-indigo-200' :
+                                                                st === 'kyushoku' ? 'bg-purple-100 text-purple-800 border border-purple-200' :
+                                                                'bg-rose-100 text-rose-800 border border-rose-200'
+                                                            }`}>
+                                                                {dStr.slice(5).replace('-', '/')} ({stLabel})
+                                                            </span>
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
                                         );
@@ -1808,11 +2205,30 @@
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-lg w-full animate-fade-in-up border border-slate-200">
                                 <h3 className="text-xl font-bold text-orange-600 mb-2 flex items-center gap-2"><Calendar className="w-6 h-6"/> 保健師面談 希望日時の入力</h3>
-                                <p className="text-sm text-slate-600 mb-6">保健師との面談に向けて、希望日時（第1〜第3希望）を入力してください。入力後、通知用のメール文面が作成されます。</p>
+                                <p className="text-sm text-slate-600 mb-6">保健師との面談に向けて、希望日時（第1〜第3希望・30分間隔）を選択してください。入力後、通知用のメール文面が作成されます。</p>
                                 <div className="space-y-4 mb-6">
-                                    <div><label className="block text-sm font-bold text-slate-700 mb-1">第1希望日時</label><input type="datetime-local" value={interviewDates.date1} onChange={e => setInterviewDates({...interviewDates, date1: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-orange-500 outline-none" /></div>
-                                    <div><label className="block text-sm font-bold text-slate-700 mb-1">第2希望日時</label><input type="datetime-local" value={interviewDates.date2} onChange={e => setInterviewDates({...interviewDates, date2: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-orange-500 outline-none" /></div>
-                                    <div><label className="block text-sm font-bold text-slate-700 mb-1">第3希望日時</label><input type="datetime-local" value={interviewDates.date3} onChange={e => setInterviewDates({...interviewDates, date3: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-orange-500 outline-none" /></div>
+                                    {[1, 2, 3].map(num => (
+                                        <div key={`nurse_slot_${num}`}>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1">第{num}希望日時</label>
+                                            <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                                                <input
+                                                    type="date"
+                                                    value={interviewDates[`date${num}`]}
+                                                    onChange={e => setInterviewDates({...interviewDates, [`date${num}`]: e.target.value})}
+                                                    className="sm:col-span-3 w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-orange-500 outline-none bg-white"
+                                                />
+                                                <select
+                                                    value={interviewDates[`time${num}`]}
+                                                    onChange={e => setInterviewDates({...interviewDates, [`time${num}`]: e.target.value})}
+                                                    className="sm:col-span-2 w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-orange-500 outline-none bg-white font-bold text-slate-700"
+                                                >
+                                                    {TIME_SLOTS_30MIN.map(t => (
+                                                        <option key={t} value={t}>{t} 〜</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    ))}
                                     <div className="pt-4 border-t border-slate-200">
                                         <label className="block text-sm font-bold text-slate-700 mb-1">通知先メールアドレス (任意)</label>
                                         <input type="email" value={notifyEmail} onChange={e => setNotifyEmail(e.target.value)} placeholder="例: yamada@example.com" className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-orange-500 outline-none" />
@@ -1831,11 +2247,30 @@
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[100] backdrop-blur-sm p-4">
                             <div className="bg-white p-8 rounded-2xl shadow-2xl max-w-lg w-full animate-fade-in-up border border-slate-200">
                                 <h3 className="text-xl font-bold text-purple-600 mb-2 flex items-center gap-2"><Calendar className="w-6 h-6"/> 産業医・5者面談 希望日時の入力</h3>
-                                <p className="text-sm text-slate-600 mb-6">産業医および関係者を交えた5者面談に向けて、希望日時を入力してください。入力後、通知用のメール文面が作成されます。</p>
+                                <p className="text-sm text-slate-600 mb-6">産業医および関係者を交えた5者面談に向けて、希望日時（第1〜第3希望・30分間隔）を選択してください。入力後、通知用のメール文面が作成されます。</p>
                                 <div className="space-y-4 mb-6">
-                                    <div><label className="block text-sm font-bold text-slate-700 mb-1">第1希望日</label><input type="date" value={interviewDates.date1} onChange={e => setInterviewDates({...interviewDates, date1: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" /></div>
-                                    <div><label className="block text-sm font-bold text-slate-700 mb-1">第2希望日</label><input type="date" value={interviewDates.date2} onChange={e => setInterviewDates({...interviewDates, date2: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" /></div>
-                                    <div><label className="block text-sm font-bold text-slate-700 mb-1">第3希望日</label><input type="date" value={interviewDates.date3} onChange={e => setInterviewDates({...interviewDates, date3: e.target.value})} className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" /></div>
+                                    {[1, 2, 3].map(num => (
+                                        <div key={`doc_slot_${num}`}>
+                                            <label className="block text-sm font-bold text-slate-700 mb-1">第{num}希望日時</label>
+                                            <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                                                <input
+                                                    type="date"
+                                                    value={interviewDates[`date${num}`]}
+                                                    onChange={e => setInterviewDates({...interviewDates, [`date${num}`]: e.target.value})}
+                                                    className="sm:col-span-3 w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-purple-500 outline-none bg-white"
+                                                />
+                                                <select
+                                                    value={interviewDates[`time${num}`]}
+                                                    onChange={e => setInterviewDates({...interviewDates, [`time${num}`]: e.target.value})}
+                                                    className="sm:col-span-2 w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-purple-500 outline-none bg-white font-bold text-slate-700"
+                                                >
+                                                    {TIME_SLOTS_30MIN.map(t => (
+                                                        <option key={t} value={t}>{t} 〜</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                    ))}
                                     <div className="pt-4 border-t border-slate-200">
                                         <label className="block text-sm font-bold text-slate-700 mb-1">通知先メールアドレス (任意)</label>
                                         <input type="email" value={notifyEmail} onChange={e => setNotifyEmail(e.target.value)} placeholder="例: yamada@example.com" className="w-full p-2 border border-slate-300 rounded-md focus:ring-2 focus:ring-purple-500 outline-none" />
@@ -2028,6 +2463,11 @@
                                             <div className="flex flex-wrap items-center gap-2 mb-1">
                                                 <span className="text-sm text-slate-500 font-medium">社員番号: {formData.empId || '未入力'}</span>
                                                 <span className="text-sm text-slate-500 font-medium border-l border-slate-300 pl-2">所属: {formData.department || '未入力'}</span>
+                                                {tenureInfo && (
+                                                    <span className="text-xs bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded font-bold">
+                                                        勤続: {tenureInfo.tenureText}（休職上限: {tenureInfo.leaveMonths}か月）
+                                                    </span>
+                                                )}
                                                 {formData.assigned_manager_id && <span className="text-sm text-indigo-600 font-bold border-l border-slate-300 pl-2 flex items-center gap-1"><Briefcase className="w-3 h-3"/> 担当職制: {usersList.find(u => u.id === formData.assigned_manager_id)?.name || '不明'}</span>}
                                             </div>
                                             <h2 className="text-xl font-bold text-slate-800">{formData.name || '氏名未設定'}</h2>
@@ -2136,6 +2576,28 @@
                                                             </select>
                                                         </div>
                                                         <div><label className="block text-sm font-medium text-slate-700 mb-1">現在の勤務状況</label><select name="q_absence" value={formData.q_absence || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500"><option value="">選択してください</option><option value="none">休業なし (出勤中)</option><option value="short">4日未満の休業</option><option value="long">1週間以上の長期休業</option></select></div>
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-slate-700 mb-1">入社年月日（勤続年数・休職期間判定用）</label>
+                                                            <input type="date" name="hire_date" value={formData.hire_date || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500 bg-white"/>
+                                                        </div>
+                                                        <div>
+                                                            <label className="block text-sm font-medium text-slate-700 mb-1">休業（休職）開始予定日</label>
+                                                            <input type="date" name="sim_start_date" value={formData.sim_start_date || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500 bg-white"/>
+                                                        </div>
+                                                        {tenureInfo && (
+                                                            <div className="md:col-span-2 bg-indigo-50 border border-indigo-200 rounded-lg p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                                                <div className="text-xs sm:text-sm text-indigo-950">
+                                                                    <span className="font-bold">休職開始前（休業61日目時点）の勤続年数：</span>
+                                                                    <span className="font-black text-indigo-700 text-base mr-2">{tenureInfo.tenureText}</span>
+                                                                    <span className="bg-white border border-indigo-200 text-indigo-800 px-2 py-0.5 rounded text-xs font-bold">{tenureInfo.categoryLabel}</span>
+                                                                    {tenureInfo.kyushokuStartStr && <div className="text-xs text-indigo-800 mt-1">休職開始予定日（61日目）: <b>{tenureInfo.kyushokuStartStr}</b></div>}
+                                                                </div>
+                                                                <div className="text-xs sm:text-sm bg-indigo-600 text-white px-3.5 py-1.5 rounded-lg font-bold shadow-sm self-start sm:self-center">
+                                                                    休職可能期間：最大 <span className="text-base font-black">{tenureInfo.leaveMonths}か月</span>
+                                                                    {tenureInfo.expiryDateStr && <span className="block sm:inline text-[11px] font-normal sm:ml-2 opacity-90">（満了目安: {tenureInfo.expiryDateStr}）</span>}
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                         <div className="md:col-span-2">
                                                             <label className="block text-sm font-medium text-slate-700 mb-1">連絡可能なメールアドレス <span className="text-red-500">*</span></label>
                                                             <input type="email" name="emp_contact_email" value={formData.emp_contact_email || ''} onChange={handleInputChange} disabled={!canEdit0} className="w-full p-2 border border-slate-300 rounded-md disabled:bg-slate-100 disabled:text-slate-500 bg-white" placeholder="例: my-email@example.com (個人・会社どちらでも可)"/>
@@ -2229,7 +2691,7 @@
                                                                                 manager_email: selectedManager ? selectedManager.email : ''
                                                                             });
                                                                         }}
-                                                                        className="w-full p-3 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                                                                        className="w-full p-3 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none bg-white"
                                                                     >
                                                                         <option value="">システム登録の上司を選択...</option>
                                                                         {usersList.filter(u => u.role === 'manager').map(m => (
@@ -2311,8 +2773,8 @@
                                                             <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">0. 基本確認</h4>
                                                             {renderQ('mgr_q0_1', 'Q0-1. 本人の復職予定先はどの勤務形態ですか', ['デスクワーク（日勤）', '現場勤務（昼専）', '交替勤務', 'その他'], !canEdit1, formData, handleInputChange)}
                                                             <label className="block text-xs font-bold text-slate-700 mb-1">Q0-2. 復職後に予定している業務内容を記入してください</label>{renderText('mgr_q0_2', '業務の詳細', !canEdit1, formData, handleInputChange)}
-                                                            {renderQ('mgr_q0_3', 'Q0-3. 復職後の業務内容の決定状況', ['決定済', 'おおむね決定', '調整中', '未定'], !canEdit1, formData, handleInputChange)}
-                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q0-4. 職制が予定している配慮内容（任意・復帰プランPDFに反映）</label>{renderText('mgr_q6_1', '例：復職後1ヶ月間は残業なし、日勤固定でフォロー担当者を配置など', !canEdit1, formData, handleInputChange)}
+                                                            {renderQ('mgr_q0_3', 'Q0-3. 復職後の業務内容の決定状況', ['決定済', 'ほぼ決定', '調整中', '未定（要相談）'], !canEdit1, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q0-4. 職制が予定している配慮内容（復帰プランPDFに反映）</label>{renderText('mgr_q6_1', '例: 復職後1ヶ月は残業なし、日勤固定で段階的に業務量を戻す等', !canEdit1, formData, handleInputChange)}
                                                         </div>
                                                         <div><h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">1. 勤務継続に関する評価</h4>{mgrQuestions.q1.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}</div>
                                                         <div><h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">2. 安全就業に関する評価</h4>{mgrQuestions.q2.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}</div>
@@ -2428,31 +2890,40 @@
                                                                         <p className="text-sm text-slate-600 mb-6">面談の実施後、以下のボタンから最終的なプログラム進行を決定してください。</p>
                                                                         <div className="flex flex-col sm:flex-row justify-center gap-4">
                                                                             <button onClick={() => saveData({ phase: 4, doctor_final_judgment: 'normal' })} className="px-6 py-3 bg-white border-2 border-green-500 text-green-700 font-bold rounded-xl hover:bg-green-50 transition-colors shadow-sm">就業支援PGなし (通常復帰・Phase 4へ)</button>
-                                                                            <button onClick={() => saveData({ phase: 3, pg_step: 0 })} className={`px-6 py-3 text-white font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center gap-2 ${isNurse ? 'bg-orange-500 hover:bg-orange-600' : 'bg-purple-600 hover:bg-purple-700'}`}>就業支援PGを開始する (有休相談・Phase Ⅰへ) <Play className="w-4 h-4"/></button>
+                                                                            <button onClick={() => { setSimViewStep(null); saveData({ phase: 3, pg_step: 0 }); }} className={`px-6 py-3 text-white font-bold rounded-xl transition-colors shadow-sm flex items-center justify-center gap-2 ${isNurse ? 'bg-orange-500 hover:bg-orange-600' : 'bg-purple-600 hover:bg-purple-700'}`}>就業支援PGを開始する (有休相談・Phase Ⅰへ) <Play className="w-4 h-4"/></button>
                                                                         </div>
                                                                         <div className="mt-6 pt-4 border-t border-slate-100">
                                                                             <button onClick={() => saveData({ interview_requested: null })} className="text-xs text-slate-500 hover:text-slate-700 underline flex items-center justify-center gap-1 mx-auto"><RotateCcw className="w-3 h-3"/> ルート選択(A/B/C)をやり直す</button>
                                                                         </div>
                                                                     </div>
                                                                 ) : (
-                                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                                                        <button onClick={() => saveData({ phase: 4, doctor_final_judgment: 'normal' })} disabled={!canEdit2 || level >= 1} className={`relative bg-white border-2 border-green-500 text-green-700 hover:bg-green-50 font-bold py-4 px-2 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed ${level === 0 ? 'ring-4 ring-green-200 bg-green-50' : ''}`}>
-                                                                            {level === 0 && <span className="absolute -top-3 bg-green-500 text-white text-xs px-3 py-1 rounded-full shadow-sm">💡 システム推奨</span>}
-                                                                            <span className="text-sm">A. 通常復帰</span>
-                                                                            <span className="text-[10px] font-normal opacity-80 group-hover:opacity-100 text-center">PG導入・面談なし<br/>1ヶ月後にフォローシート</span>
-                                                                        </button>
-                                                                        
-                                                                        <button onClick={() => setShowNurseInterviewModal(true)} disabled={!canEdit2 || level >= 2} className={`relative bg-white border-2 border-orange-500 text-orange-700 hover:bg-orange-50 font-bold py-4 px-2 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed ${level === 1 ? 'ring-4 ring-orange-200 bg-orange-50' : ''}`}>
-                                                                            {level === 1 && <span className="absolute -top-3 bg-orange-500 text-white text-xs px-3 py-1 rounded-full shadow-sm">💡 システム推奨</span>}
-                                                                            <span className="text-sm">B. 保健師面談</span>
-                                                                            <span className="text-[10px] font-normal opacity-80 group-hover:opacity-100 text-center">面談希望の通知を発信<br/>(面談後、PG導入か判定)</span>
-                                                                        </button>
+                                                                    <div className="space-y-4">
+                                                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                                            <button onClick={() => saveData({ phase: 4, doctor_final_judgment: 'normal' })} disabled={!canEdit2 || level >= 1} className={`relative bg-white border-2 border-green-500 text-green-700 hover:bg-green-50 font-bold py-4 px-2 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed ${level === 0 ? 'ring-4 ring-green-200 bg-green-50' : ''}`}>
+                                                                                {level === 0 && <span className="absolute -top-3 bg-green-500 text-white text-xs px-3 py-1 rounded-full shadow-sm">💡 システム推奨</span>}
+                                                                                <span className="text-sm">A. 通常復帰</span>
+                                                                                <span className="text-[10px] font-normal opacity-80 group-hover:opacity-100 text-center">PG導入・面談なし<br/>1ヶ月後にフォローシート</span>
+                                                                            </button>
+                                                                            
+                                                                            <button onClick={() => setShowNurseInterviewModal(true)} disabled={!canEdit2 || level >= 2} className={`relative bg-white border-2 border-orange-500 text-orange-700 hover:bg-orange-50 font-bold py-4 px-2 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed ${level === 1 ? 'ring-4 ring-orange-200 bg-orange-50' : ''}`}>
+                                                                                {level === 1 && <span className="absolute -top-3 bg-orange-500 text-white text-xs px-3 py-1 rounded-full shadow-sm">💡 システム推奨</span>}
+                                                                                <span className="text-sm">B. 保健師面談</span>
+                                                                                <span className="text-[10px] font-normal opacity-80 group-hover:opacity-100 text-center">面談希望の通知を発信<br/>(面談後、PG導入か判定)</span>
+                                                                            </button>
 
-                                                                        <button onClick={() => setShowDoctorInterviewModal(true)} disabled={!canEdit2} className={`relative bg-white border-2 border-purple-500 text-purple-700 hover:bg-purple-50 font-bold py-4 px-2 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed ${level >= 2 ? 'ring-4 ring-purple-200 bg-purple-50' : ''}`}>
-                                                                            {level >= 2 && <span className="absolute -top-3 bg-purple-500 text-white text-xs px-3 py-1 rounded-full shadow-sm">💡 システム推奨</span>}
-                                                                            <span className="text-sm">C. 産業医・5者面談</span>
-                                                                            <span className="text-[10px] font-normal opacity-80 group-hover:opacity-100 text-center">面談希望の通知を発信<br/>(面談後、PG導入か判定)</span>
-                                                                        </button>
+                                                                            <button onClick={() => setShowDoctorInterviewModal(true)} disabled={!canEdit2} className={`relative bg-white border-2 border-purple-500 text-purple-700 hover:bg-purple-50 font-bold py-4 px-2 rounded-xl shadow-sm transition-all flex flex-col items-center justify-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed ${level >= 2 ? 'ring-4 ring-purple-200 bg-purple-50' : ''}`}>
+                                                                                {level >= 2 && <span className="absolute -top-3 bg-purple-500 text-white text-xs px-3 py-1 rounded-full shadow-sm">💡 システム推奨</span>}
+                                                                                <span className="text-sm">C. 産業医・5者面談</span>
+                                                                                <span className="text-[10px] font-normal opacity-80 group-hover:opacity-100 text-center">面談希望の通知を発信<br/>(面談後、PG導入か判定)</span>
+                                                                            </button>
+                                                                        </div>
+                                                                        {canEdit2 && (
+                                                                            <div className="text-center pt-2">
+                                                                                <button onClick={() => { setSimViewStep(null); saveData({ phase: 3, pg_step: 0 }); }} className="text-xs text-purple-700 hover:text-purple-900 font-bold underline">
+                                                                                    ※面談済みの場合はこちらから直接「就業支援PG（Step 4）」へ進む
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
                                                                     </div>
                                                                 )}
                                                                 
@@ -2474,55 +2945,51 @@
                                 {currentPhase === 3 && (
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 border-b pb-3">
-                                            <h2 className="text-xl font-bold flex items-center gap-2 text-slate-800"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">【Step 4】 就業支援PG</span> 療養専念・復帰準備期</h2>
-                                            <div className="flex flex-wrap items-center gap-2">
-                                                {canViewShobyo && (
-                                                    <button type="button" onClick={() => setShowShobyoModal(true)} className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold px-3 py-1.5 rounded-lg flex items-center gap-1">
-                                                        <FileText className="w-3.5 h-3.5"/> 傷病手当金・FAX管理表を開く
-                                                    </button>
-                                                )}
-                                                {simViewStep !== null && simViewStep !== pgStep && (
-                                                    <button onClick={() => setSimViewStep(null)} className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold px-3 py-1.5 rounded-lg flex items-center gap-1">
-                                                        現在の進行ステップに戻る <ChevronRight className="w-3.5 h-3.5"/>
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {/* Phase 3 サブステップ切り替えナビゲーション */}
-                                        <div className="mb-8 bg-slate-50 p-2 rounded-xl border border-slate-200 flex flex-wrap gap-1.5">
-                                            {[
-                                                { step: 0, label: '0. 有休・休業シミュレーション' },
-                                                { step: 1, label: 'Ⅰ. 療養状況報告' },
-                                                { step: 2, label: 'Ⅱ. 復帰準備' },
-                                                { step: 3, label: 'Ⅲ. 受け入れ確認' },
-                                                { step: 4, label: '最終判定' }
-                                            ].map(sub => {
-                                                const isReached = isAdmin || pgStep >= sub.step;
-                                                const isViewing = activePgStep === sub.step;
-                                                return (
-                                                    <button
-                                                        key={sub.step}
-                                                        type="button"
-                                                        disabled={!isReached}
-                                                        onClick={() => setSimViewStep(sub.step === pgStep ? null : sub.step)}
-                                                        className={`px-3 py-2 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${isViewing ? 'bg-blue-600 text-white shadow-sm' : isReached ? 'bg-white text-slate-700 hover:bg-blue-50 border border-slate-200' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
-                                                    >
-                                                        {pgStep > sub.step && <Check className="w-3.5 h-3.5 text-emerald-500"/>}
-                                                        <span>{sub.label}</span>
-                                                    </button>
-                                                );
-                                            })}
+                                            <h2 className="text-xl font-bold flex items-center gap-2 text-slate-800">
+                                                <span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">【Step 4】 就業支援PG</span> 療養専念・復帰準備期
+                                            </h2>
+                                            {canViewShobyo && (
+                                                <button type="button" onClick={() => setShowShobyoModal(true)} className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-colors self-start sm:self-center">
+                                                    <FileText className="w-4 h-4 text-amber-600"/> 傷病手当金 申請・FAX管理表を開く
+                                                </button>
+                                            )}
                                         </div>
                                         
                                         {actualPhase === 3 && !canEdit('employee') && !canEdit('manager') && !canEdit('ohp') && !isAdmin ? (
                                             <div className="text-center p-12 bg-slate-50 rounded-xl border border-slate-200"><Clock className="w-12 h-12 text-slate-300 mx-auto mb-4"/><h3 className="text-xl font-bold text-slate-700 mb-2">現在のステップ進行中</h3><p className="text-slate-500">現在、対象者が療養状況の報告、および復帰に向けた準備を行っています。</p></div>
                                         ) : (
                                             <div className="space-y-12">
+                                                {/* Phase 3 サブステップナビゲーションバー */}
+                                                <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex flex-wrap gap-2 items-center">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSimViewStep(0)}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 ${activePgStep === 0 ? 'bg-sky-600 text-white shadow-sm' : 'bg-white text-slate-700 border border-slate-200 hover:bg-sky-50'}`}
+                                                    >
+                                                        <span>0. 私傷病休業・有休シミュレーション</span>
+                                                        {pgStep >= 1 && <Check className="w-3.5 h-3.5 text-emerald-500"/>}
+                                                    </button>
+                                                    <ChevronRight className="w-4 h-4 text-slate-400 hidden sm:inline"/>
+                                                    <button
+                                                        type="button"
+                                                        disabled={pgStep < 1 && !isAdmin}
+                                                        onClick={() => setSimViewStep(null)}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 ${activePgStep >= 1 ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-500 border border-slate-200 disabled:opacity-50'}`}
+                                                    >
+                                                        <span>Ⅰ〜最終判定. 療養報告・復帰準備・判定（現在: Phase {['0', 'Ⅰ', 'Ⅱ', 'Ⅲ', '最終判定'][pgStep]}）</span>
+                                                    </button>
+                                                </div>
+
                                                 {/* Phase 3, Step 0: 有休・休業シミュレーション */}
                                                 {activePgStep === 0 && (() => {
                                                     const currentPat = simPatterns[simActiveTab] || simPatterns[0];
                                                     const metrics = getPatternMetrics(currentPat);
+                                                    const currentTenureInfo = calculateTenureAndLeaveLimit(
+                                                        formData.hire_date,
+                                                        metrics.kyushokuStartDate || addDaysToDateStr(metrics.absenceStartDate || simStartDate, 84)
+                                                    );
+                                                    const currentPlannedPaid = currentPat.plannedPaid !== undefined ? currentPat.plannedPaid : metrics.usedPaid;
+                                                    const currentPlannedLS = currentPat.plannedLS !== undefined ? currentPat.plannedLS : metrics.usedLS;
 
                                                     const { year: calY, month: calM } = simCalMonth;
                                                     const firstDow = new Date(calY, calM - 1, 1).getDay();
@@ -2544,16 +3011,57 @@
                                                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-sky-200 pb-3">
                                                                 <div>
                                                                     <span className="inline-block bg-sky-600 text-white text-xs font-bold px-2.5 py-0.5 rounded mb-1">人事・本人 事前相談ツール</span>
-                                                                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Calendar className="w-5 h-5 text-sky-600"/> 有休・ライフサポート・休業シミュレーション</h3>
+                                                                    <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2"><Calendar className="w-5 h-5 text-sky-600"/> 私傷病休業シミュレーション（①有休・LS → ②私傷病欠勤1〜60日 → ③休職61日〜）</h3>
                                                                 </div>
                                                                 {!canEditSim && (
                                                                     <span className="text-xs bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-full flex items-center gap-1 self-start"><Lock className="w-3.5 h-3.5"/> 人事・本人のみ操作可能（閲覧専用）</span>
                                                                 )}
                                                             </div>
 
+                                                            {/* 就業規則の3段階ステップガイド */}
+                                                            <div className="bg-white/95 border border-sky-300 rounded-xl p-4 text-xs text-slate-700 space-y-3 shadow-sm">
+                                                                <div className="font-bold text-sky-900 flex items-center gap-1.5">
+                                                                    <Info className="w-4 h-4 text-sky-600 flex-shrink-0"/>
+                                                                    <span>以下の①・②・③の期間をすべてまとめたお休みをトータルで「私傷病休業」と呼びます。</span>
+                                                                </div>
+                                                                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                                    <div className="bg-emerald-50/80 border border-emerald-200 rounded-lg p-3">
+                                                                        <div className="font-bold text-emerald-900 mb-1 flex items-center gap-1.5">
+                                                                            <span className="bg-emerald-600 text-white px-2 py-0.5 rounded text-[10px]">① 最初</span>
+                                                                            有休・LS 使用期間
+                                                                        </div>
+                                                                        <p className="text-emerald-800 leading-relaxed">
+                                                                            有休とLSの使用日数を決めることで、その終了後から始まる<b>②「私傷病欠勤」の開始日を後ろへずらす</b>ことができます。
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="bg-rose-50/80 border border-rose-200 rounded-lg p-3">
+                                                                        <div className="font-bold text-rose-900 mb-1 flex items-center gap-1.5">
+                                                                            <span className="bg-rose-600 text-white px-2 py-0.5 rounded text-[10px]">② 1〜60日</span>
+                                                                            私傷病欠勤期間（1〜60日付与）
+                                                                        </div>
+                                                                        <p className="text-rose-800 leading-relaxed">
+                                                                            ①の終了後から<b>1〜60日</b>の私傷病欠勤が私用できます。欠勤が60日以内に収まれば翌年の有休は<b>21日維持</b>されます。
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="bg-purple-50/80 border border-purple-200 rounded-lg p-3">
+                                                                        <div className="font-bold text-purple-900 mb-1 flex items-center gap-1.5">
+                                                                            <span className="bg-purple-600 text-white px-2 py-0.5 rounded text-[10px]">③ 61日目〜</span>
+                                                                            休職期間（勤続年数で上限決定）
+                                                                        </div>
+                                                                        <p className="text-purple-800 leading-relaxed">
+                                                                            欠勤が<b>61日</b>に達すると休職期間（労働義務免除・有休LS不可）に入り、翌年の有休付与が<b>21日→13日</b>に減ります。
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
                                                             <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm">
-                                                                <h4 className="font-bold text-sm text-slate-700 mb-3 flex items-center gap-2"><span className="bg-sky-100 text-sky-800 w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span> 保有日数と休業予定期間の入力</h4>
-                                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                                                <h4 className="font-bold text-sm text-slate-700 mb-3 flex items-center gap-2"><span className="bg-sky-100 text-sky-800 w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span> 保有日数・勤続年数と私傷病休業の予定期間の入力</h4>
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                                                                    <div>
+                                                                        <label className="block text-xs font-bold text-slate-600 mb-1">入社年月日</label>
+                                                                        <input type="date" value={formData.hire_date || ''} onChange={(e) => updateSimBase('hire_date', e.target.value)} disabled={!canEditSim} className="w-full p-2.5 border border-indigo-300 rounded-lg font-bold text-slate-800 bg-indigo-50/40 focus:bg-white focus:ring-2 focus:ring-indigo-500 outline-none disabled:opacity-60"/>
+                                                                    </div>
                                                                     <div>
                                                                         <label className="block text-xs font-bold text-slate-600 mb-1">現在の有休残日数 (日)</label>
                                                                         <input type="number" min="0" max="100" value={simPaidLeave} onChange={(e) => updateSimBase('sim_paid_leave', e.target.value)} disabled={!canEditSim} className="w-full p-2.5 border border-slate-300 rounded-lg font-bold text-slate-800 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-sky-500 outline-none disabled:opacity-60"/>
@@ -2563,14 +3071,44 @@
                                                                         <input type="number" min="0" max="100" value={simLifeSupport} onChange={(e) => updateSimBase('sim_life_support', e.target.value)} disabled={!canEditSim} className="w-full p-2.5 border border-slate-300 rounded-lg font-bold text-slate-800 bg-slate-50 focus:bg-white focus:ring-2 focus:ring-sky-500 outline-none disabled:opacity-60"/>
                                                                     </div>
                                                                     <div>
-                                                                        <label className="block text-xs font-bold text-slate-600 mb-1">休業開始予定日</label>
+                                                                        <label className="block text-xs font-bold text-slate-600 mb-1">私傷病休業 開始予定日</label>
                                                                         <input type="date" value={simStartDate} onChange={(e) => updateSimBase('sim_start_date', e.target.value)} disabled={!canEditSim} className="w-full p-2.5 border border-sky-300 rounded-lg font-bold text-slate-800 bg-sky-50/50 focus:bg-white focus:ring-2 focus:ring-sky-500 outline-none disabled:opacity-60"/>
                                                                     </div>
                                                                     <div>
-                                                                        <label className="block text-xs font-bold text-slate-600 mb-1">休業終了予定日 (目安)</label>
+                                                                        <label className="block text-xs font-bold text-slate-600 mb-1">私傷病休業 終了予定日 (目安)</label>
                                                                         <input type="date" value={simEndDate} onChange={(e) => updateSimBase('sim_end_date', e.target.value)} disabled={!canEditSim} className="w-full p-2.5 border border-sky-300 rounded-lg font-bold text-slate-800 bg-sky-50/50 focus:bg-white focus:ring-2 focus:ring-sky-500 outline-none disabled:opacity-60"/>
                                                                     </div>
                                                                 </div>
+
+                                                                {/* 勤続年数に基づく休職可能期間の自動判定ボックス */}
+                                                                {currentTenureInfo ? (
+                                                                    <div className="mt-4 p-3.5 bg-indigo-50 border border-indigo-200 rounded-lg flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                                                        <div className="text-xs sm:text-sm text-indigo-950">
+                                                                            <span className="font-bold">休職開始時点（欠勤61日目時点）の勤続年数：</span>
+                                                                            <span className="font-black text-indigo-700 text-base mr-2">{currentTenureInfo.tenureText}</span>
+                                                                            <span className="bg-white border border-indigo-200 text-indigo-800 px-2 py-0.5 rounded text-xs font-bold">{currentTenureInfo.categoryLabel}</span>
+                                                                            {metrics.kyushokuStartDate ? (
+                                                                                <div className="text-xs text-indigo-800 mt-1">
+                                                                                    ③ 休職開始予定日（欠勤61日目）: <b>{metrics.kyushokuStartDate}</b>
+                                                                                </div>
+                                                                            ) : (
+                                                                                <div className="text-xs text-slate-600 mt-1">
+                                                                                    ※現在のパターンは欠勤60日以内（61日未満）のため休職には入りません（休職移行時の目安基準日: {currentTenureInfo.kyushokuStartStr}）
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="text-xs sm:text-sm bg-indigo-600 text-white px-3.5 py-2 rounded-lg font-bold shadow-sm self-start sm:self-center">
+                                                                            休職可能期間：最大 <span className="text-base font-black">{currentTenureInfo.leaveMonths}か月</span>
+                                                                            {metrics.kyushokuStartDate && currentTenureInfo.expiryDateStr && (
+                                                                                <span className="block text-[11px] font-normal mt-0.5 opacity-95">休職満了予定日（目安）: {currentTenureInfo.expiryDateStr}</span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="mt-3 text-xs text-slate-500">
+                                                                        ※「入社年月日」を入力すると、勤続年数に応じた休職可能期間（満3年未満: 9か月 ／ 満3年以上〜10年未満: 21か月 ／ 満10年以上: 33か月）が自動表示されます。
+                                                                    </div>
+                                                                )}
                                                             </div>
 
                                                             <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
@@ -2607,35 +3145,141 @@
                                                                         </div>
                                                                     </div>
 
+                                                                    {/* 有休・LS日数を決めて「私傷病欠勤の開始日」を後ろにずらすコントロール＆タイムライン */}
+                                                                    <div className="bg-sky-50/70 border border-sky-200 rounded-xl p-4 space-y-4">
+                                                                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                                                            <div>
+                                                                                <h5 className="font-bold text-sm text-sky-950 flex items-center gap-1.5">
+                                                                                    <span className="bg-sky-600 text-white w-5 h-5 rounded-full flex items-center justify-center text-xs">2</span>
+                                                                                    使用する有休・LS日数を決めて「私傷病欠勤の開始日」をずらす
+                                                                                </h5>
+                                                                                <p className="text-xs text-slate-600 mt-0.5">
+                                                                                    使用する有休・LS日数を入力すると、その日数分だけ後ろへずれた<b>「② 私傷病欠勤の開始日」</b>とカレンダー日程が自動算出されます。
+                                                                                </p>
+                                                                            </div>
+                                                                            {canEditSim && (
+                                                                                <div className="flex flex-wrap gap-1.5">
+                                                                                    <button type="button" onClick={() => applyLeaveDaysShift(simActiveTab, 3, 0)} className="px-2.5 py-1.5 bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-lg text-xs font-bold shadow-sm transition-colors">
+                                                                                        待期3日のみ有休 (有休3日/LS0日)
+                                                                                    </button>
+                                                                                    <button type="button" onClick={() => applyLeaveDaysShift(simActiveTab, simPaidLeave, simLifeSupport)} className="px-2.5 py-1.5 bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-300 rounded-lg text-xs font-bold shadow-sm transition-colors">
+                                                                                        有休・LSを全消化 (有休{simPaidLeave}日/LS{simLifeSupport}日)
+                                                                                    </button>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+
+                                                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+                                                                            <div className="bg-white p-3 rounded-lg border border-emerald-300">
+                                                                                <label className="block text-xs font-bold text-emerald-800 mb-1">① 使用する有休日数 (上限 {simPaidLeave}日)</label>
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min="0"
+                                                                                        max={simPaidLeave}
+                                                                                        value={currentPlannedPaid}
+                                                                                        onChange={(e) => applyLeaveDaysShift(simActiveTab, e.target.value, currentPlannedLS)}
+                                                                                        disabled={!canEditSim}
+                                                                                        className="w-full p-2 border border-emerald-300 rounded font-black text-base text-emerald-900 bg-emerald-50/40 focus:bg-white outline-none disabled:opacity-60"
+                                                                                    />
+                                                                                    <span className="text-xs font-bold text-slate-600">日</span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="bg-white p-3 rounded-lg border border-indigo-300">
+                                                                                <label className="block text-xs font-bold text-indigo-800 mb-1">① 使用するLS日数 (上限 {simLifeSupport}日)</label>
+                                                                                <div className="flex items-center gap-2">
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min="0"
+                                                                                        max={simLifeSupport}
+                                                                                        value={currentPlannedLS}
+                                                                                        onChange={(e) => applyLeaveDaysShift(simActiveTab, currentPlannedPaid, e.target.value)}
+                                                                                        disabled={!canEditSim}
+                                                                                        className="w-full p-2 border border-indigo-300 rounded font-black text-base text-indigo-900 bg-indigo-50/40 focus:bg-white outline-none disabled:opacity-60"
+                                                                                    />
+                                                                                    <span className="text-xs font-bold text-slate-600">日</span>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="sm:col-span-2 bg-white p-3 rounded-lg border-2 border-rose-300 flex flex-col justify-center">
+                                                                                <div className="text-[11px] font-bold text-rose-700">② 私傷病欠勤 開始予定日（1日目）</div>
+                                                                                <div className="flex flex-wrap items-baseline gap-2 mt-0.5">
+                                                                                    <span className="text-lg sm:text-xl font-black text-rose-800">{metrics.absenceStartDate || '未定'}</span>
+                                                                                    <span className="text-xs text-slate-500 font-bold">
+                                                                                        （休業開始 {simStartDate} から有休・LS 計{metrics.usedPaid + metrics.usedLS}営業日分スライド）
+                                                                                    </span>
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+
+                                                                        {/* 段階別日程スケジュールバー */}
+                                                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-1 text-xs">
+                                                                            <div className="bg-white px-3 py-2 rounded-lg border border-emerald-200 flex items-center justify-between">
+                                                                                <span className="font-bold text-emerald-800">① 有休・LS期間</span>
+                                                                                <span className="font-bold text-slate-700">
+                                                                                    {metrics.step1StartDate ? `${metrics.step1StartDate} 〜 ${metrics.step1EndDate}` : '使用なし（0日）'}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="bg-white px-3 py-2 rounded-lg border border-rose-200 flex items-center justify-between">
+                                                                                <span className="font-bold text-rose-800">② 私傷病欠勤 (1〜60日)</span>
+                                                                                <span className="font-bold text-slate-700">
+                                                                                    {metrics.absenceStartDate || '-'} 〜 {metrics.absence60EndDate || '60日以内'}
+                                                                                </span>
+                                                                            </div>
+                                                                            <div className="bg-white px-3 py-2 rounded-lg border border-purple-200 flex items-center justify-between">
+                                                                                <span className="font-bold text-purple-800">③ 休職開始 (61日目〜)</span>
+                                                                                <span className="font-bold text-slate-700">
+                                                                                    {metrics.kyushokuStartDate ? `${metrics.kyushokuStartDate} 〜` : '休職なし（60日以内）'}
+                                                                                </span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+
                                                                     {currentPat.inputMode === 'manual' ? (
                                                                         <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
-                                                                            <p className="text-xs text-slate-600 font-medium">※欠勤日数や有休消化日数がすでに分かっている場合は、こちらに直接日数を入力して試算できます。</p>
-                                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                                                            <p className="text-xs text-slate-600 font-medium">※日数直接入力モードでは、①有休・LS消化後の「②私傷病欠勤（1〜60日）」および「③休職（61日目以降）」の日数を直接調整できます。</p>
+                                                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                                                                                 <div>
-                                                                                    <label className="block text-xs font-bold text-emerald-800 mb-1">使用する有休日数 (日)</label>
-                                                                                    <input type="number" min="0" value={currentPat.manualPaid} onChange={(e) => updateSimPattern(simActiveTab, { manualPaid: Math.max(0, parseInt(e.target.value, 10) || 0) })} disabled={!canEditSim} className="w-full p-2.5 border border-emerald-300 rounded-lg font-bold text-emerald-900 bg-white disabled:bg-slate-100"/>
+                                                                                    <label className="block text-xs font-bold text-emerald-800 mb-1">① 使用する有休 (上限 {simPaidLeave}日)</label>
+                                                                                    <input type="number" min="0" max={simPaidLeave} value={currentPat.manualPaid} onChange={(e) => applyLeaveDaysShift(simActiveTab, e.target.value, currentPat.manualLS)} disabled={!canEditSim} className="w-full p-2.5 border border-emerald-300 rounded-lg font-bold text-emerald-900 bg-white disabled:bg-slate-100"/>
                                                                                 </div>
                                                                                 <div>
-                                                                                    <label className="block text-xs font-bold text-indigo-800 mb-1">使用するライフサポート (日)</label>
-                                                                                    <input type="number" min="0" value={currentPat.manualLS} onChange={(e) => updateSimPattern(simActiveTab, { manualLS: Math.max(0, parseInt(e.target.value, 10) || 0) })} disabled={!canEditSim} className="w-full p-2.5 border border-indigo-300 rounded-lg font-bold text-indigo-900 bg-white disabled:bg-slate-100"/>
+                                                                                    <label className="block text-xs font-bold text-indigo-800 mb-1">① 使用するLS (上限 {simLifeSupport}日)</label>
+                                                                                    <input type="number" min="0" max={simLifeSupport} value={currentPat.manualLS} onChange={(e) => applyLeaveDaysShift(simActiveTab, currentPat.manualPaid, e.target.value)} disabled={!canEditSim} className="w-full p-2.5 border border-indigo-300 rounded-lg font-bold text-indigo-900 bg-white disabled:bg-slate-100"/>
                                                                                 </div>
                                                                                 <div>
-                                                                                    <label className="block text-xs font-bold text-rose-800 mb-1">欠勤日数 (日)</label>
-                                                                                    <input type="number" min="0" value={currentPat.manualAbsence} onChange={(e) => updateSimPattern(simActiveTab, { manualAbsence: Math.max(0, parseInt(e.target.value, 10) || 0) })} disabled={!canEditSim} className="w-full p-2.5 border border-rose-300 rounded-lg font-bold text-rose-900 bg-white disabled:bg-slate-100"/>
+                                                                                    <label className="block text-xs font-bold text-indigo-800 mb-1">① 使用するLS (日)</label>
+                                                                                    <input type="number" min="0" value={currentPat.manualLS} onChange={(e) => applyLeaveDaysShift(simActiveTab, currentPat.manualPaid, e.target.value)} disabled={!canEditSim} className="w-full p-2.5 border border-indigo-300 rounded-lg font-bold text-indigo-900 bg-white disabled:bg-slate-100"/>
+                                                                                </div>
+                                                                                <div>
+                                                                                    <label className="block text-xs font-bold text-rose-800 mb-1">② 私傷病欠勤 (1〜60日)</label>
+                                                                                    <input type="number" min="0" max="60" value={currentPat.manualAbsence} onChange={(e) => updateSimPattern(simActiveTab, { manualAbsence: Math.max(0, parseInt(e.target.value, 10) || 0) })} disabled={!canEditSim} className="w-full p-2.5 border border-rose-300 rounded-lg font-bold text-rose-900 bg-white disabled:bg-slate-100"/>
+                                                                                </div>
+                                                                                <div>
+                                                                                    <label className="block text-xs font-bold text-purple-800 mb-1">③ 休職日数 (61日目〜)</label>
+                                                                                    <input type="number" min="0" value={currentPat.manualKyushoku || 0} onChange={(e) => updateSimPattern(simActiveTab, { manualKyushoku: Math.max(0, parseInt(e.target.value, 10) || 0) })} disabled={!canEditSim} className="w-full p-2.5 border border-purple-300 rounded-lg font-bold text-purple-900 bg-white disabled:bg-slate-100"/>
                                                                                 </div>
                                                                             </div>
                                                                         </div>
                                                                     ) : (
                                                                         <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
-                                                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                                                                                <div className="text-xs text-slate-600 font-medium">
-                                                                                    日付をクリックすると <span className="font-bold text-emerald-700">有休</span> → <span className="font-bold text-indigo-700">ライフサポート</span> → <span className="font-bold text-rose-700">欠勤</span> → <span className="font-bold text-slate-500">解除(公休)</span> の順に切り替わります。
+                                                                            <div className="flex flex-col gap-2">
+                                                                                <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-700 font-medium">
+                                                                                    <span>カレンダー個別調整（日付をクリックで切替）：</span>
+                                                                                    <span className="bg-emerald-500 text-white px-2 py-0.5 rounded font-bold text-[11px]">① 有休</span>
+                                                                                    <span>→</span>
+                                                                                    <span className="bg-indigo-500 text-white px-2 py-0.5 rounded font-bold text-[11px]">① LS(ライフ)</span>
+                                                                                    <span>→</span>
+                                                                                    <span className="bg-rose-500 text-white px-2 py-0.5 rounded font-bold text-[11px]">② 私傷病欠勤(1〜60日)</span>
+                                                                                    <span>→</span>
+                                                                                    <span className="bg-purple-600 text-white px-2 py-0.5 rounded font-bold text-[11px]">③ 休職(61日目〜)</span>
+                                                                                    <span>→</span>
+                                                                                    <span className="bg-white border border-slate-300 text-slate-600 px-2 py-0.5 rounded font-bold text-[11px]">解除(公休)</span>
                                                                                 </div>
                                                                                 {canEditSim && (
-                                                                                    <div className="flex flex-wrap gap-1.5">
-                                                                                        <button type="button" onClick={() => applyCalendarBulk(simActiveTab, 'first3_paid')} className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded text-xs font-bold transition-colors">開始日から平日3日を有休</button>
-                                                                                        <button type="button" onClick={() => applyCalendarBulk(simActiveTab, 'fill_weekdays_absence')} className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300 rounded text-xs font-bold transition-colors">期間内の平日を欠勤に</button>
-                                                                                        <button type="button" onClick={() => applyCalendarBulk(simActiveTab, 'fill_alldays_absence')} className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded text-xs font-bold transition-colors">期間内の全日を欠勤に</button>
+                                                                                    <div className="flex flex-wrap gap-1.5 pt-1">
+                                                                                        <button type="button" onClick={() => applyLeaveDaysShift(simActiveTab, currentPlannedPaid, currentPlannedLS)} className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded text-xs font-bold shadow-sm transition-colors">⚡ 指定中の有休・LS日数で日程を再計算</button>
+                                                                                        <button type="button" onClick={() => applyCalendarBulk(simActiveTab, 'fill_step2_absence60')} className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300 rounded text-xs font-bold transition-colors">② 有休・LS後を「私傷病欠勤(最大60日)」</button>
+                                                                                        <button type="button" onClick={() => applyCalendarBulk(simActiveTab, 'fill_step3_kyushoku')} className="px-2.5 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-300 rounded text-xs font-bold transition-colors">③ 欠勤60日満了後を「休職」</button>
                                                                                         <button type="button" onClick={() => applyCalendarBulk(simActiveTab, 'clear')} className="px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-500 border border-slate-300 rounded text-xs font-bold transition-colors">クリア</button>
                                                                                     </div>
                                                                                 )}
@@ -2665,13 +3309,22 @@
                                                                                         const holidayName = getJapaneseHolidayName(calY, calM, dayNum);
                                                                                         const status = (currentPat.calendarMap || {})[dateStr] || '';
                                                                                         const isInRange = dateStr >= simStartDate && dateStr <= simEndDate;
+                                                                                        const dayInfo = metrics.dayIndexMap[dateStr] || null;
+                                                                                        const isInvalidChoice = !!(dayInfo && dayInfo.invalid);
 
                                                                                         let cellBg = 'bg-white hover:bg-sky-50';
                                                                                         if (status === 'paid') cellBg = 'bg-emerald-500 text-white hover:bg-emerald-600';
                                                                                         else if (status === 'ls') cellBg = 'bg-indigo-500 text-white hover:bg-indigo-600';
                                                                                         else if (status === 'absence') cellBg = 'bg-rose-500 text-white hover:bg-rose-600';
+                                                                                        else if (status === 'kyushoku') cellBg = 'bg-purple-600 text-white hover:bg-purple-700';
                                                                                         else if (holidayName || dow === 0) cellBg = 'bg-red-50/50 hover:bg-red-100/60';
                                                                                         else if (dow === 6) cellBg = 'bg-blue-50/50 hover:bg-blue-100/60';
+
+                                                                                        let statusBadgeText = '';
+                                                                                        if (status === 'paid') statusBadgeText = '① 有休';
+                                                                                        else if (status === 'ls') statusBadgeText = '① LS';
+                                                                                        else if (status === 'absence') statusBadgeText = dayInfo?.absenceNum ? `② 欠勤${dayInfo.absenceNum}日` : '② 私傷病欠勤';
+                                                                                        else if (status === 'kyushoku') statusBadgeText = dayInfo?.kyushokuNum === 1 ? '③ 休職(61日目)' : '③ 休職';
 
                                                                                         return (
                                                                                             <button
@@ -2679,20 +3332,25 @@
                                                                                                 type="button"
                                                                                                 disabled={!canEditSim}
                                                                                                 onClick={() => toggleCalendarDay(simActiveTab, dateStr)}
-                                                                                                className={`h-16 sm:h-20 p-1.5 flex flex-col justify-between text-left transition-colors relative ${cellBg} ${isInRange && !status ? 'ring-1 ring-inset ring-sky-300' : ''} disabled:cursor-default`}
+                                                                                                title={dayInfo?.invalid || ''}
+                                                                                                className={`h-16 sm:h-20 p-1.5 flex flex-col justify-between text-left transition-colors relative ${cellBg} ${isInvalidChoice ? 'ring-2 ring-inset ring-amber-300' : isInRange && !status ? 'ring-1 ring-inset ring-sky-300' : ''} disabled:cursor-default`}
                                                                                             >
-                                                                                                <div className="flex items-center justify-between w-full">
+                                                                                                <div className="flex items-center justify-between w-full gap-0.5">
                                                                                                     <span className={`text-xs sm:text-sm font-bold ${status ? 'text-white' : (holidayName || dow === 0) ? 'text-red-600' : dow === 6 ? 'text-blue-600' : 'text-slate-700'}`}>
                                                                                                         {dayNum}
                                                                                                     </span>
-                                                                                                    {dateStr === simStartDate && <span className={`text-[9px] px-1 rounded font-bold ${status ? 'bg-white/25 text-white' : 'bg-sky-100 text-sky-800'}`}>開始</span>}
+                                                                                                    {dateStr === simStartDate && <span className={`text-[9px] px-1 rounded font-bold ${status ? 'bg-white/25 text-white' : 'bg-sky-100 text-sky-800'}`}>休業開始</span>}
+                                                                                                    {dayInfo?.absenceNum === 1 && <span className="text-[9px] px-1 rounded font-black bg-white text-rose-700">欠勤開始</span>}
+                                                                                                    {dayInfo?.absenceNum === 60 && <span className="text-[9px] px-1 rounded font-black bg-amber-300 text-slate-900">60日満了</span>}
+                                                                                                    {dayInfo?.kyushokuNum === 1 && <span className="text-[9px] px-1 rounded font-black bg-red-300 text-slate-900">61日目</span>}
+                                                                                                    {isInvalidChoice && <span className="text-[9px] px-1 rounded font-black bg-amber-300 text-slate-900">注意</span>}
                                                                                                 </div>
                                                                                                 {holidayName && !status && (
                                                                                                     <span className="text-[9px] text-red-500 font-bold leading-tight truncate w-full">{holidayName}</span>
                                                                                                 )}
                                                                                                 {status && (
-                                                                                                    <span className="text-[10px] sm:text-xs font-black tracking-tight bg-black/15 px-1.5 py-0.5 rounded text-center w-full">
-                                                                                                        {status === 'paid' ? '有休' : status === 'ls' ? 'ライフ' : '欠勤'}
+                                                                                                    <span className="text-[10px] sm:text-[11px] font-black tracking-tight bg-black/15 px-1 py-0.5 rounded text-center w-full truncate">
+                                                                                                        {statusBadgeText}
                                                                                                     </span>
                                                                                                 )}
                                                                                             </button>
@@ -2703,53 +3361,88 @@
                                                                         </div>
                                                                     )}
 
-                                                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+                                                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-center">
                                                                         <div className={`p-3 rounded-lg border ${metrics.remainPaid < 0 ? 'bg-red-50 border-red-300' : 'bg-emerald-50/70 border-emerald-200'}`}>
-                                                                            <div className="text-xs font-bold text-slate-600 mb-1">使用有休 / 残</div>
-                                                                            <div className={`text-lg sm:text-xl font-black ${metrics.remainPaid < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                                                                            <div className="text-xs font-bold text-slate-600 mb-1">① 使用有休 / 残</div>
+                                                                            <div className={`text-base sm:text-lg font-black ${metrics.remainPaid < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
                                                                                 {metrics.usedPaid}日 <span className="text-xs font-normal text-slate-600">(残 {metrics.remainPaid}日)</span>
                                                                             </div>
                                                                         </div>
                                                                         <div className={`p-3 rounded-lg border ${metrics.remainLS < 0 ? 'bg-red-50 border-red-300' : 'bg-indigo-50/70 border-indigo-200'}`}>
-                                                                            <div className="text-xs font-bold text-slate-600 mb-1">使用LS / 残</div>
-                                                                            <div className={`text-lg sm:text-xl font-black ${metrics.remainLS < 0 ? 'text-red-600' : 'text-indigo-700'}`}>
+                                                                            <div className="text-xs font-bold text-slate-600 mb-1">① 使用LS / 残</div>
+                                                                            <div className={`text-base sm:text-lg font-black ${metrics.remainLS < 0 ? 'text-red-600' : 'text-indigo-700'}`}>
                                                                                 {metrics.usedLS}日 <span className="text-xs font-normal text-slate-600">(残 {metrics.remainLS}日)</span>
                                                                             </div>
                                                                         </div>
-                                                                        <div className={`p-3 rounded-lg border ${metrics.absenceDays >= 60 ? 'bg-red-50 border-red-400 ring-2 ring-red-200' : 'bg-rose-50/70 border-rose-200'}`}>
-                                                                            <div className="text-xs font-bold text-slate-600 mb-1">欠勤日数</div>
-                                                                            <div className={`text-lg sm:text-xl font-black ${metrics.absenceDays >= 60 ? 'text-red-600' : 'text-rose-700'}`}>
-                                                                                {metrics.absenceDays}<span className="text-xs font-normal ml-0.5">日</span>
+                                                                        <div className="p-3 rounded-lg border bg-rose-50/70 border-rose-200">
+                                                                            <div className="text-xs font-bold text-slate-600 mb-1">② 私傷病欠勤 (1〜60日)</div>
+                                                                            <div className="text-base sm:text-lg font-black text-rose-700">
+                                                                                {metrics.absenceDays}<span className="text-xs font-normal ml-0.5">/ 60日</span>
                                                                             </div>
                                                                         </div>
-                                                                        <div className="p-3 rounded-lg border bg-slate-100 border-slate-300">
-                                                                            <div className="text-xs font-bold text-slate-600 mb-1">合計日数</div>
-                                                                            <div className="text-lg sm:text-xl font-black text-slate-800">
+                                                                        <div className={`p-3 rounded-lg border ${metrics.reaches61Days ? 'bg-red-50 border-red-400 ring-2 ring-red-200' : 'bg-purple-50/70 border-purple-200'}`}>
+                                                                            <div className="text-xs font-bold text-slate-600 mb-1">③ 休職 (61日目〜)</div>
+                                                                            <div className={`text-base sm:text-lg font-black ${metrics.reaches61Days ? 'text-red-600' : 'text-purple-800'}`}>
+                                                                                {metrics.kyushokuDays}<span className="text-xs font-normal ml-0.5">日</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="p-3 rounded-lg border bg-sky-100/70 border-sky-300 col-span-2 sm:col-span-1">
+                                                                            <div className="text-xs font-bold text-sky-900 mb-1">私傷病休業 合計</div>
+                                                                            <div className="text-base sm:text-lg font-black text-sky-950">
                                                                                 {metrics.totalDays}<span className="text-xs font-normal ml-0.5">日</span>
                                                                             </div>
                                                                         </div>
                                                                     </div>
 
                                                                     <div className="space-y-2">
-                                                                        {metrics.absenceDays >= 60 && (
+                                                                        {metrics.over60Absence && (
+                                                                            <div className="p-3.5 bg-amber-50 border-l-4 border-amber-500 rounded-r-lg flex items-start gap-2.5 text-amber-950">
+                                                                                <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5"/>
+                                                                                <div className="text-xs sm:text-sm font-bold leading-relaxed">
+                                                                                    【私傷病欠勤の上限（60日）超過】②の私傷病欠勤は<b>1〜60日まで</b>取得できます（現在 {metrics.absenceDays}日）。60日満了後の<b>61日目以降</b>は労働の義務が免除される「③ 休職」を選択してください。
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+                                                                        {metrics.kyushokuBefore60 && (
+                                                                            <div className="p-3.5 bg-amber-50 border-l-4 border-amber-500 rounded-r-lg flex items-start gap-2.5 text-amber-950">
+                                                                                <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5"/>
+                                                                                <div className="text-xs sm:text-sm font-bold leading-relaxed">
+                                                                                    【順番の確認】②の私傷病欠勤（1〜60日）が60日に達する前に「③ 休職」が選択されています。①有休・LS消化後は、まず60日分の「私傷病欠勤」を消化してから「休職」へ移行します。
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+                                                                        {metrics.leaveAfterAbsenceOrKyushoku && (
+                                                                            <div className="p-3.5 bg-amber-50 border-l-4 border-amber-500 rounded-r-lg flex items-start gap-2.5 text-amber-950">
+                                                                                <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5"/>
+                                                                                <div className="text-xs sm:text-sm font-bold leading-relaxed">
+                                                                                    【有休・LS使用順序の注意】有休・ライフサポートは<b>①最初の期間</b>にまとめて使用し、その終了後から②私傷病欠勤（1〜60日）がカウントされます（特に③休職期間中は労働義務免除のため有休・LSは使用不可です）。
+                                                                                </div>
+                                                                            </div>
+                                                                        )}
+                                                                        {metrics.reaches61Days ? (
                                                                             <div className="p-3.5 bg-red-50 border-l-4 border-red-500 rounded-r-lg flex items-start gap-2.5 text-red-800">
                                                                                 <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5"/>
                                                                                 <div className="text-xs sm:text-sm font-bold leading-relaxed">
-                                                                                    【有休付与減の注意】欠勤が60日以上（現在 {metrics.absenceDays}日）になるため、翌年の有休付与日数が <span className="underline">21日 → 13日</span> に減少する見込みです。
+                                                                                    【有休付与減の注意】欠勤が<b>61日（③休職期間）</b>に達するため、翌年の有休付与日数が <span className="underline">21日 → 13日</span> に減少する見込みです。
                                                                                 </div>
+                                                                            </div>
+                                                                        ) : metrics.totalDays > 0 && (
+                                                                            <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-2 text-emerald-800 text-xs sm:text-sm font-bold">
+                                                                                <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0"/>
+                                                                                <span>欠勤が60日以内（61日未満）に収まっているため、翌年の有休付与日数は 21日 が維持されます。</span>
                                                                             </div>
                                                                         )}
                                                                         {metrics.usedPaid < 3 && metrics.totalDays > 0 ? (
                                                                             <div className="p-3.5 bg-blue-50 border-l-4 border-blue-500 rounded-r-lg flex items-start gap-2.5 text-blue-900">
                                                                                 <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5"/>
                                                                                 <div className="text-xs sm:text-sm font-medium leading-relaxed">
-                                                                                    <b>【傷病手当金の待期期間について】</b> 傷病手当金は欠勤開始から<b>4日目以降</b>の支給となります（最初の3日間は支給対象外）。最初の3日間は有休を充てる方が多いです。
+                                                                                    <b>【傷病手当金の待期期間について】</b> 傷病手当金は休業開始から連続3日間の待期期間を経た<b>4日目以降</b>の支給となります。最初の3日間は①の有休を充てる方が多いです。
                                                                                 </div>
                                                                             </div>
                                                                         ) : metrics.totalDays > 0 && (
                                                                             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-2 text-emerald-800 text-xs sm:text-sm font-bold">
                                                                                 <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0"/>
-                                                                                <span>最初の3日間（傷病手当金の待期期間）を有休でカバーできています（4日目以降以降から支給対象）。</span>
+                                                                                <span>最初の3日間（傷病手当金の待期期間）を有休でカバーできています（4日目以降から支給対象）。</span>
                                                                             </div>
                                                                         )}
                                                                         {(metrics.remainPaid < 0 || metrics.remainLS < 0) && (
@@ -2769,12 +3462,12 @@
                                                                         <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
                                                                             <tr>
                                                                                 <th className="p-3">パターン</th>
-                                                                                <th className="p-3">方式</th>
-                                                                                <th className="p-3">使用有休</th>
-                                                                                <th className="p-3">使用LS</th>
-                                                                                <th className="p-3">残有休</th>
-                                                                                <th className="p-3">欠勤日数</th>
-                                                                                <th className="p-3">翌年有休 (60日基準)</th>
+                                                                                <th className="p-3">① 有休 / LS</th>
+                                                                                <th className="p-3">② 私傷病欠勤 開始日</th>
+                                                                                <th className="p-3">② 私傷病欠勤(1〜60日)</th>
+                                                                                <th className="p-3">③ 休職(61日〜)</th>
+                                                                                <th className="p-3">私傷病休業 合計</th>
+                                                                                <th className="p-3">翌年有休 (61日基準)</th>
                                                                                 <th className="p-3">待期3日カバー</th>
                                                                                 {canEditSim && <th className="p-3 text-center">選択</th>}
                                                                             </tr>
@@ -2786,12 +3479,12 @@
                                                                                 return (
                                                                                     <tr key={idx} className={isSelected ? 'bg-sky-50/70 font-bold' : 'hover:bg-slate-50'}>
                                                                                         <td className="p-3 text-slate-800">{['A', 'B', 'C'][idx]}: {pat.name}</td>
-                                                                                        <td className="p-3 text-slate-500">{pat.inputMode === 'manual' ? '日数入力' : 'カレンダー'}</td>
-                                                                                        <td className="p-3 text-emerald-700 font-bold">{m.usedPaid}日</td>
-                                                                                        <td className="p-3 text-indigo-700 font-bold">{m.usedLS}日</td>
-                                                                                        <td className={`p-3 font-bold ${m.remainPaid < 0 ? 'text-red-600' : 'text-slate-700'}`}>{m.remainPaid}日</td>
-                                                                                        <td className={`p-3 font-black ${m.absenceDays >= 60 ? 'text-red-600' : 'text-slate-800'}`}>{m.absenceDays}日</td>
-                                                                                        <td className="p-3">{m.absenceDays >= 60 ? <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold">13日へ減少</span> : <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold">21日維持</span>}</td>
+                                                                                        <td className="p-3 text-emerald-700 font-bold">有休 {m.usedPaid}日 / LS {m.usedLS}日</td>
+                                                                                        <td className="p-3 font-bold text-rose-700">{m.absenceStartDate || '未定'}</td>
+                                                                                        <td className="p-3 font-black text-rose-700">{m.absenceDays}日</td>
+                                                                                        <td className={`p-3 font-black ${m.reaches61Days ? 'text-red-600' : 'text-purple-700'}`}>{m.kyushokuDays}日</td>
+                                                                                        <td className="p-3 font-black text-slate-800">{m.totalDays}日</td>
+                                                                                        <td className="p-3">{m.reaches61Days ? <span className="bg-red-100 text-red-700 px-2 py-0.5 rounded font-bold">13日へ減少</span> : <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold">21日維持</span>}</td>
                                                                                         <td className="p-3">{m.usedPaid >= 3 ? <span className="text-emerald-600 font-bold">○ カバー済</span> : <span className="text-orange-600 font-bold">△ 3日未満</span>}</td>
                                                                                         {canEditSim && (
                                                                                             <td className="p-3 text-center">
@@ -3049,7 +3742,7 @@
                                             <AlertTriangle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5"/>
                                             <div>
                                                 <h4 className="font-bold text-red-800 text-sm mb-1">⚠️ 重要: フォロー終了と再休職リスクについて</h4>
-                                                <p className="text-sm text-red-700 font-bold">フォローが終了して復職日から「１年以内」に再発・再休職となった場合、会社の規定により休職可能期間（最大33か月）を大きく消費するリスクがあります。本人と職制の評価に乖離がある場合や、少しでも不安が残る場合は安易にプログラムを完了させず、保健師へ相談しフォローを継続してください。</p>
+                                                <p className="text-sm text-red-700 font-bold">フォローが終了して復職日から「１年以内」に再発・再休職となった場合、会社の規定により休職可能期間（{tenureInfo ? `対象者の上限: ${tenureInfo.leaveMonths}か月` : '勤続年数により9〜33か月'}）を大きく消費するリスクがあります。本人と職制の評価に乖離がある場合や、少しでも不安が残る場合は安易にプログラムを完了させず、保健師へ相談しフォローを継続してください。</p>
                                             </div>
                                         </div>
 
