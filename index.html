@@ -590,6 +590,33 @@
                 return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
             };
 
+            // 無料プラン等でStorageが使えない場合用の画像圧縮ヘルパー
+            const compressImageToDataUrl = (file) => new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const maxDim = 1200;
+                        let w = img.width;
+                        let h = img.height;
+                        if (w > maxDim || h > maxDim) {
+                            if (w > h) { h = Math.round((h * maxDim) / w); w = maxDim; }
+                            else { w = Math.round((w * maxDim) / h); h = maxDim; }
+                        }
+                        const canvas = document.createElement('canvas');
+                        canvas.width = w;
+                        canvas.height = h;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, w, h);
+                        resolve(canvas.toDataURL('image/jpeg', 0.72));
+                    };
+                    img.onerror = reject;
+                    img.src = ev.target.result;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+
             const handleUploadCertificate = async (e) => {
                 e.preventDefault();
                 if (!certFile) {
@@ -612,21 +639,33 @@
                 try {
                     let downloadUrl = '';
                     let storagePath = '';
+                    let savedFileType = certFile.type || 'application/octet-stream';
 
                     if (isDemoMode) {
                         downloadUrl = URL.createObjectURL(certFile);
                     } else {
-                        storagePath = `certificates/${caseId}/${certId}_${certFile.name}`;
-                        const storageRef = ref(storage, storagePath);
-                        await uploadBytes(storageRef, certFile);
-                        downloadUrl = await getDownloadURL(storageRef);
+                        try {
+                            storagePath = `certificates/${caseId}/${certId}_${certFile.name}`;
+                            const storageRef = ref(storage, storagePath);
+                            await uploadBytes(storageRef, certFile);
+                            downloadUrl = await getDownloadURL(storageRef);
+                        } catch (storageErr) {
+                            // Storage未有効化・無料プラン制限などの場合、画像なら圧縮してFirestoreへ直接保存
+                            if (certFile.type && certFile.type.startsWith('image/')) {
+                                storagePath = '';
+                                savedFileType = 'image/jpeg';
+                                downloadUrl = await compressImageToDataUrl(certFile);
+                            } else {
+                                throw storageErr;
+                            }
+                        }
                     }
 
                     const newCert = {
                         id: certId,
                         docType: certDocType,
                         fileName: certFile.name,
-                        fileType: certFile.type || 'application/octet-stream',
+                        fileType: savedFileType,
                         fileSize: certFile.size,
                         note: certNote.trim(),
                         phaseLabel,
@@ -672,10 +711,16 @@
                     }
                 } catch (err) {
                     console.error("診断書アップロードエラー:", err);
-                    const detailMsg = err?.code === 'storage/unauthorized'
-                        ? "Firebase Console の「Storage」を有効化し、セキュリティルールを許可設定にしてください。"
-                        : "ネットワーク環境をご確認のうえ、再度お試しください。";
-                    requestConfirm(`診断書のアップロードに失敗しました。\n${detailMsg}`, () => {});
+                    const errCode = err?.code || 'unknown';
+                    let detailMsg = `エラーコード: ${errCode}\n`;
+                    if (errCode === 'storage/unauthorized') {
+                        detailMsg += "Firebase Console の「Storage ＞ ルール」で認証済みユーザーの読み書きを許可してください。";
+                    } else if (errCode === 'storage/bucket-not-found' || errCode === 'storage/project-not-found' || errCode === 'storage/unknown') {
+                        detailMsg += "Firebase Console の「Storage」が未有効化（または無料プランのまま）の可能性があります。ConsoleでStorageを有効化するか、スマホ等で撮影した画像（JPG/PNG）としてアップロードしてください。";
+                    } else {
+                        detailMsg += `${err?.message || 'Firebase Storageの設定または通信状態を確認してください。'}`;
+                    }
+                    requestConfirm(`診断書のアップロードに失敗しました。\n\n${detailMsg}`, () => {});
                 } finally {
                     setIsUploadingCert(false);
                 }
