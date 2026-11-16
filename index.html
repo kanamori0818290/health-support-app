@@ -51,6 +51,9 @@
         import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendEmailVerification } from 'firebase/auth';
         import { getFirestore, collection, doc, setDoc, getDoc, onSnapshot, deleteDoc } from 'firebase/firestore';
 
+        // 本番公開時は false に変更するとデモログインボタンが非表示になります
+        const ENABLE_DEMO_MODE = true;
+
         const firebaseConfig = {
             apiKey: "AIzaSyDHqkBNSSsakVwHxKdWZ4hNoSM9wORbLR4",
             authDomain: "health-support-portal.firebaseapp.com",
@@ -82,7 +85,22 @@
             { id: 4, title: 'フォロー', desc: '面談シート' }
         ];
 
+        const SHOBYO_STATUSES = [
+            { value: '1', label: '① 本人・医師記入待ち', badge: 'bg-slate-100 text-slate-700 border-slate-300' },
+            { value: '2', label: '② 人事確認・出勤簿作成中', badge: 'bg-amber-100 text-amber-800 border-amber-300' },
+            { value: '3', label: '③ 健保へFAX送信済', badge: 'bg-blue-100 text-blue-800 border-blue-300' },
+            { value: '4', label: '④ 支給決定・完了', badge: 'bg-emerald-100 text-emerald-800 border-emerald-300' }
+        ];
+
         const MASTER_ADMIN_EMAIL = "yuuto.kanamori.ma@mcgc.com";
+
+        // ポータルURL取得ヘルパー
+        const getPortalUrl = () => {
+            if (typeof window !== 'undefined' && window.location) {
+                return `${window.location.origin}${window.location.pathname}`;
+            }
+            return '';
+        };
 
         // --- 日本の祝日判定ヘルパー ---
         const getNthWeekday = (year, month, weekday, n) => {
@@ -181,6 +199,9 @@
                 const now = new Date();
                 return { year: now.getFullYear(), month: now.getMonth() + 1 };
             });
+
+            // 傷病手当金 申請・FAX管理モーダル用ステート
+            const [showShobyoModal, setShowShobyoModal] = useState(false);
 
             const actualPhase = formData.phase || 0;
             const pgStep = formData.pg_step !== undefined ? formData.pg_step : 1;
@@ -479,6 +500,7 @@
             const CurrentRoleIcon = ROLES.find(r => r.id === currentRole)?.icon || User;
             const isAdmin = currentRole === 'admin';
             const canEditSim = isAdmin || canEdit('employee');
+            const canViewShobyo = currentRole !== 'manager'; // 職制以外の本人・人事・専門職が閲覧可（編集は本人・人事）
 
             // --- 有休・休業シミュレーション ヘルパー ---
             const simPaidLeave = formData.sim_paid_leave !== undefined ? Number(formData.sim_paid_leave) : 20;
@@ -622,6 +644,47 @@
                 });
             };
 
+            // --- 傷病手当金 申請・FAX管理 ヘルパー ---
+            const shobyoClaims = Array.isArray(formData.shobyo_claims) ? formData.shobyo_claims : [];
+
+            const addShobyoClaim = () => {
+                const nextNum = shobyoClaims.length + 1;
+                const newClaim = {
+                    id: `claim_${Date.now()}`,
+                    round: `第${nextNum}回`,
+                    periodStart: nextNum === 1 ? (formData.sim_start_date || '') : '',
+                    periodEnd: '',
+                    status: '1',
+                    chk_doctor: false,
+                    chk_waiting: false,
+                    chk_attendance: false,
+                    fax_date: '',
+                    fax_staff: isAdmin ? (currentUser?.name || '') : '',
+                    fax_ref_no: '',
+                    memo: ''
+                };
+                setFormData(prev => ({
+                    ...prev,
+                    shobyo_claims: [...(Array.isArray(prev.shobyo_claims) ? prev.shobyo_claims : []), newClaim]
+                }));
+            };
+
+            const updateShobyoClaim = (claimId, patch) => {
+                setFormData(prev => ({
+                    ...prev,
+                    shobyo_claims: (Array.isArray(prev.shobyo_claims) ? prev.shobyo_claims : []).map(c =>
+                        c.id === claimId ? { ...c, ...patch } : c
+                    )
+                }));
+            };
+
+            const deleteShobyoClaim = (claimId, roundLabel) => {
+                requestConfirm(`「${roundLabel}」の傷病手当金申請記録を削除しますか？`, () => {
+                    const updated = shobyoClaims.filter(c => c.id !== claimId);
+                    saveData({ shobyo_claims: updated });
+                });
+            };
+
             const saveData = async (extraData = {}) => {
                 const newData = { ...formData, ...extraData, lastUpdated: Date.now() };
                 setFormData(newData);
@@ -698,6 +761,11 @@
 
             const getIdleDays = (lastUpdated) => { if (!lastUpdated) return 0; return Math.floor(Math.abs(Date.now() - lastUpdated) / (1000 * 60 * 60 * 24)); };
 
+            // フェーズに応じた放置警告の閾値日数（判定前は5日、療養・フォロー中は14日）
+            const getIdleThreshold = (phaseNum) => {
+                return (phaseNum || 0) >= 3 ? 14 : 5;
+            };
+
             const checkEvaluationGap = () => {
                 if (actualPhase !== 4) return false;
                 for (let q of ['1', '2', '3']) {
@@ -711,7 +779,7 @@
             const handleExportCSV = () => {
                 let csvContent = "\uFEFFデータ項目,入力値\n";
                 Object.keys(formData).forEach(key => {
-                    if (key === 'contact_logs' || key === 'sim_patterns') return; 
+                    if (key === 'contact_logs' || key === 'sim_patterns' || key === 'shobyo_claims') return; 
                     let val = formData[key] || '';
                     if (typeof val === 'string') { val = val.replace(/"/g, '""'); if (val.search(/("|,|\n)/g) >= 0) val = `"${val}"`; }
                     csvContent += `${key},${val}\n`;
@@ -730,7 +798,7 @@
                 
                 if(notifyEmail) {
                     const subject = `【就業支援ポータル】保健師面談の調整 (${formData.name}さん)`;
-                    const body = `${formData.name} 様の保健師面談の調整依頼が届きました。\n\n第1希望: ${interviewDates.date1}\n第2希望: ${interviewDates.date2}\n第3希望: ${interviewDates.date3}\n\nポータルにログインして詳細を確認してください。`;
+                    const body = `${formData.name} 様の保健師面談の調整依頼が届きました。\n\n第1希望: ${interviewDates.date1}\n第2希望: ${interviewDates.date2}\n第3希望: ${interviewDates.date3}\n\nポータルにログインして詳細を確認してください。\n▼ポータルURL\n${getPortalUrl()}`;
                     openMailClient(notifyEmail, subject, body);
                 }
                 setInterviewDates({ date1: '', date2: '', date3: '' });
@@ -745,7 +813,7 @@
                 
                 if(notifyEmail) {
                     const subject = `【就業支援ポータル】産業医・5者面談の調整 (${formData.name}さん)`;
-                    const body = `${formData.name} 様の産業医・5者面談の調整依頼が届きました。\n\n第1希望: ${interviewDates.date1}\n第2希望: ${interviewDates.date2}\n第3希望: ${interviewDates.date3}\n\nポータルにログインして詳細を確認してください。`;
+                    const body = `${formData.name} 様の産業医・5者面談の調整依頼が届きました。\n\n第1希望: ${interviewDates.date1}\n第2希望: ${interviewDates.date2}\n第3希望: ${interviewDates.date3}\n\nポータルにログインして詳細を確認してください。\n▼ポータルURL\n${getPortalUrl()}`;
                     openMailClient(notifyEmail, subject, body);
                 }
                 setInterviewDates({ date1: '', date2: '', date3: '' });
@@ -758,8 +826,27 @@
                 const empEmail = formData.emp_contact_email || '';
                 const toEmails = [mgrEmail, empEmail].filter(Boolean).join(',');
                 const subject = `【就業支援ポータル】最終判定完了・復帰へ (${formData.name}さん)`;
-                const body = `関係者各位\n\n${formData.name} さんの就業判定が確定し、復帰（フォロー期間）へ移行しました。\nポータルより判定結果と就業上の配慮事項をご確認ください。`;
+                const body = `関係者各位\n\n${formData.name} さんの就業判定が確定し、復帰（フォロー期間）へ移行しました。\nポータルより判定結果と就業上の配慮事項をご確認ください。\n\n▼ポータルURL\n${getPortalUrl()}`;
                 if (toEmails) openMailClient(toEmails, subject, body);
+            };
+
+            const handleImpossibleJudgment = () => {
+                requestConfirm("【就業不可（療養継続）】と判定し、対象者を「Phase Ⅰ（療養専念期）」へ戻して療養を継続しますか？\n（※コンタクト履歴に判定記録が自動追加されます）", () => {
+                    const logText = `【専門職最終判定】産業医判定により「③ 就業不可（療養継続）」となりました。引き続き療養に専念し、次回面談の調整を行います。`;
+                    const newLog = { date: new Date().toLocaleString('ja-JP'), text: logText, author: `${currentUser?.name} (${currentRoleLabel})`, role: currentRole };
+                    setSimViewStep(null);
+                    saveData({
+                        pg_step: 1,
+                        doctor_final_judgment: 'impossible',
+                        contact_logs: [...(formData.contact_logs || []), newLog]
+                    });
+                    const empEmail = formData.emp_contact_email || '';
+                    if (empEmail) {
+                        const subject = `【就業支援ポータル】就業判定結果・療養継続のお知らせ (${formData.name}さん)`;
+                        const body = `${formData.name} 様\n\n産業医による就業判定の結果、現時点では引き続き「療養継続」との判断となりました。\n焦らず治療に専念いただき、体調の変化や次回受診状況についてポータルの「Phase Ⅰ 療養状況報告」よりご報告ください。\n\n▼ポータルURL\n${getPortalUrl()}`;
+                        openMailClient(empEmail, subject, body);
+                    }
+                });
             };
 
             const renderQ = (id, title, options, disabled, formData, handleInputChange) => (
@@ -887,14 +974,16 @@
                                 </form>
                             )}
 
-                            <div className="mt-8 pt-6 border-t border-slate-200">
-                                <p className="text-xs text-slate-500 font-bold text-center mb-3">【開発用】認証をスキップして各権限の画面を確認</p>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {ROLES.map(role => (
-                                        <button key={`demo_${role.id}`} type="button" onClick={() => startDemoLogin(role.id)} className="p-2 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded flex items-center justify-center gap-1 transition-colors"><role.icon className="w-3 h-3"/> {role.label}</button>
-                                    ))}
+                            {ENABLE_DEMO_MODE && (
+                                <div className="mt-8 pt-6 border-t border-slate-200">
+                                    <p className="text-xs text-slate-500 font-bold text-center mb-3">【開発・検証用】認証をスキップして各権限の画面を確認</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {ROLES.map(role => (
+                                            <button key={`demo_${role.id}`} type="button" onClick={() => startDemoLogin(role.id)} className="p-2 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded flex items-center justify-center gap-1 transition-colors"><role.icon className="w-3 h-3"/> {role.label}</button>
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
                     </div>
                 );
@@ -926,6 +1015,153 @@
                                 <div className="flex justify-end gap-3">
                                     <button onClick={() => setShowConditionModal(false)} className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl">キャンセル</button>
                                     <button onClick={() => { setShowConditionModal(false); finalizePhase3To4(tempConditionText); }} className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-xl shadow-sm">確定して復帰へ進む</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 傷病手当金 申請・FAX管理表モーダル */}
+                    {showShobyoModal && (
+                        <div className="fixed inset-0 bg-slate-900/60 flex items-center justify-center z-[250] backdrop-blur-sm p-4">
+                            <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col animate-fade-in-up overflow-hidden border border-slate-200">
+                                <div className="p-5 border-b border-slate-200 flex justify-between items-center bg-amber-50">
+                                    <div>
+                                        <h3 className="text-lg sm:text-xl font-bold text-slate-800 flex items-center gap-2"><FileText className="w-6 h-6 text-amber-600"/> 傷病手当金 申請・健保FAX送信管理表</h3>
+                                        <p className="text-xs text-slate-600 mt-0.5">本人 ⇔ 人事はポータルで進捗共有し、健康保険組合への最終提出はクラウドFAX送信履歴・チェックリストで管理します。</p>
+                                    </div>
+                                    <button onClick={() => setShowShobyoModal(false)} className="text-slate-500 hover:bg-slate-200 p-2 rounded-full transition-colors">✕</button>
+                                </div>
+
+                                <div className="p-6 overflow-y-auto flex-grow space-y-6 text-sm bg-slate-50/50">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                                        <div className="text-xs text-slate-600 leading-relaxed">
+                                            <b>【運用ルール】</b> 病院の医師記入が完了したらステータスを「② 人事確認・出勤簿作成中」へ進めてください。人事は3項目のチェック完了後、健保へFAX送信し送信日・管理番号を記録します。
+                                        </div>
+                                        {canEditSim && (
+                                            <button type="button" onClick={addShobyoClaim} className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-sm whitespace-nowrap self-start sm:self-center">
+                                                <Plus className="w-4 h-4"/> 新しい申請回を追加
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {shobyoClaims.length === 0 ? (
+                                        <div className="bg-white p-10 rounded-xl border border-dashed border-slate-300 text-center text-slate-500">
+                                            <FileText className="w-10 h-10 text-slate-300 mx-auto mb-2"/>
+                                            <p className="font-bold text-slate-700 mb-1">まだ傷病手当金の申請記録がありません</p>
+                                            <p className="text-xs mb-4">「新しい申請回を追加」ボタンから第1回目の申請期間を登録してください。</p>
+                                            {canEditSim && (
+                                                <button type="button" onClick={addShobyoClaim} className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-xs inline-flex items-center gap-1">
+                                                    <Plus className="w-4 h-4"/> 第1回の申請を登録する
+                                                </button>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-4">
+                                            {shobyoClaims.map((claim) => {
+                                                const stObj = SHOBYO_STATUSES.find(s => s.value === claim.status) || SHOBYO_STATUSES[0];
+                                                const allChecked = claim.chk_doctor && claim.chk_waiting && claim.chk_attendance;
+                                                return (
+                                                    <div key={claim.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                                                        <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                                                            <div className="flex items-center gap-3">
+                                                                <input
+                                                                    type="text"
+                                                                    value={claim.round}
+                                                                    onChange={(e) => updateShobyoClaim(claim.id, { round: e.target.value })}
+                                                                    disabled={!canEditSim}
+                                                                    className="w-24 p-1.5 border border-slate-300 rounded font-black text-slate-800 bg-white text-sm"
+                                                                />
+                                                                <span className={`text-xs px-2.5 py-1 rounded-full font-bold border ${stObj.badge}`}>
+                                                                    {stObj.label}
+                                                                </span>
+                                                            </div>
+                                                            {canEditSim && (
+                                                                <button type="button" onClick={() => deleteShobyoClaim(claim.id, claim.round)} className="text-xs text-red-500 hover:bg-red-50 px-2.5 py-1 rounded font-bold flex items-center gap-1">
+                                                                    <Trash2 className="w-3.5 h-3.5"/> 削除
+                                                                </button>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="p-5 space-y-4">
+                                                            {/* 対象期間とステータス */}
+                                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-slate-600 mb-1">申請対象期間（開始日）</label>
+                                                                    <input type="date" value={claim.periodStart || ''} onChange={(e) => updateShobyoClaim(claim.id, { periodStart: e.target.value })} disabled={!canEditSim} className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white disabled:bg-slate-100"/>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-slate-600 mb-1">申請対象期間（終了日）</label>
+                                                                    <input type="date" value={claim.periodEnd || ''} onChange={(e) => updateShobyoClaim(claim.id, { periodEnd: e.target.value })} disabled={!canEditSim} className="w-full p-2 border border-slate-300 rounded-lg text-sm bg-white disabled:bg-slate-100"/>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-slate-600 mb-1">進行ステータス</label>
+                                                                    <select
+                                                                        value={claim.status || '1'}
+                                                                        onChange={(e) => updateShobyoClaim(claim.id, { status: e.target.value })}
+                                                                        disabled={!canEditSim}
+                                                                        className="w-full p-2 border border-slate-300 rounded-lg text-sm font-bold bg-white disabled:bg-slate-100"
+                                                                    >
+                                                                        {SHOBYO_STATUSES.map(st => (
+                                                                            <option key={st.value} value={st.value}>{st.label}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* 人事FAX送信前チェックリスト */}
+                                                            <div className="bg-amber-50/70 p-4 rounded-xl border border-amber-200 space-y-2">
+                                                                <div className="flex items-center justify-between mb-1">
+                                                                    <span className="text-xs font-bold text-amber-900">📋 健保FAX送信前の確認チェックリスト（人事・本人確認）</span>
+                                                                    {allChecked && <span className="text-[11px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded font-bold">✓ 全項目確認済</span>}
+                                                                </div>
+                                                                <label className="flex items-center gap-2.5 text-xs font-medium text-slate-800 cursor-pointer">
+                                                                    <input type="checkbox" checked={!!claim.chk_doctor} onChange={(e) => updateShobyoClaim(claim.id, { chk_doctor: e.target.checked })} disabled={!canEditSim} className="w-4 h-4 text-amber-600 rounded"/>
+                                                                    <span>医師の証明日・押印・労務不能期間の記載漏れはないか</span>
+                                                                </label>
+                                                                <label className="flex items-center gap-2.5 text-xs font-medium text-slate-800 cursor-pointer">
+                                                                    <input type="checkbox" checked={!!claim.chk_waiting} onChange={(e) => updateShobyoClaim(claim.id, { chk_waiting: e.target.checked })} disabled={!canEditSim} className="w-4 h-4 text-amber-600 rounded"/>
+                                                                    <span>待期期間（3日間）の有休・欠勤処理と一致しているか</span>
+                                                                </label>
+                                                                <label className="flex items-center gap-2.5 text-xs font-medium text-slate-800 cursor-pointer">
+                                                                    <input type="checkbox" checked={!!claim.chk_attendance} onChange={(e) => updateShobyoClaim(claim.id, { chk_attendance: e.target.checked })} disabled={!canEditSim} className="w-4 h-4 text-amber-600 rounded"/>
+                                                                    <span>出勤簿・賃金台帳の写しを添付したか（人事確認）</span>
+                                                                </label>
+                                                            </div>
+
+                                                            {/* FAX送信履歴・管理番号 */}
+                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-blue-50/50 p-4 rounded-xl border border-blue-200">
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-blue-900 mb-1">健保へのFAX送信日</label>
+                                                                    <input type="date" value={claim.fax_date || ''} onChange={(e) => updateShobyoClaim(claim.id, { fax_date: e.target.value })} disabled={!isAdmin} className="w-full p-2 border border-blue-200 rounded-lg text-xs bg-white disabled:bg-slate-100"/>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-blue-900 mb-1">FAX送信担当者（人事）</label>
+                                                                    <input type="text" placeholder="例: 人事 佐藤" value={claim.fax_staff || ''} onChange={(e) => updateShobyoClaim(claim.id, { fax_staff: e.target.value })} disabled={!isAdmin} className="w-full p-2 border border-blue-200 rounded-lg text-xs bg-white disabled:bg-slate-100"/>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="block text-xs font-bold text-blue-900 mb-1">クラウドFAX送信管理番号</label>
+                                                                    <input type="text" placeholder="例: FAX-202611-001" value={claim.fax_ref_no || ''} onChange={(e) => updateShobyoClaim(claim.id, { fax_ref_no: e.target.value })} disabled={!isAdmin} className="w-full p-2 border border-blue-200 rounded-lg text-xs bg-white disabled:bg-slate-100"/>
+                                                                </div>
+                                                                <div className="sm:col-span-3">
+                                                                    <label className="block text-xs font-bold text-slate-600 mb-1">備考・返戻・原本郵送メモ</label>
+                                                                    <input type="text" placeholder="例: 11/20 クラウドFAX送信完了・控えPDF保管済 / 原本は社内便で回収予定" value={claim.memo || ''} onChange={(e) => updateShobyoClaim(claim.id, { memo: e.target.value })} disabled={!canEditSim} className="w-full p-2 border border-slate-200 rounded-lg text-xs bg-white disabled:bg-slate-100"/>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="p-4 border-t border-slate-200 bg-white flex justify-between items-center">
+                                    {canEditSim ? (
+                                        <button type="button" onClick={() => saveData({ shobyo_claims: shobyoClaims })} className="px-6 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg text-sm shadow-sm transition-colors">
+                                            傷病手当金・FAX管理内容を保存
+                                        </button>
+                                    ) : <div></div>}
+                                    <button type="button" onClick={() => setShowShobyoModal(false)} className="px-6 py-2 bg-slate-600 hover:bg-slate-700 text-white font-bold rounded-lg text-sm transition-colors">閉じる</button>
                                 </div>
                             </div>
                         </div>
@@ -982,7 +1218,6 @@
                                         </table>
                                     </div>
 
-                                    {/* 採用パターンのカレンダー割り当て日付リスト */}
                                     {(() => {
                                         const adopted = simPatterns[simSelectedPattern] || simPatterns[0];
                                         if (adopted.inputMode === 'manual') return null;
@@ -1014,7 +1249,7 @@
                         </div>
                     )}
                     
-                    {/* コピペ用メール文面モーダル (主に個人のスマホ利用を想定した本人用) */}
+                    {/* コピペ用メール文面モーダル */}
                     {emailDraft && (
                         <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-[200] backdrop-blur-sm p-4">
                             <div className="bg-white p-6 rounded-2xl shadow-2xl max-w-lg w-full animate-fade-in-up border border-slate-200">
@@ -1100,7 +1335,7 @@
                                                     <tr><td className="p-2 border border-slate-300">Q5-1. 復職への不安</td><td className="p-2 border border-slate-300">とても強い</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
                                                     <tr><td className="p-2 border border-slate-300">Q5-2. 職場の人間関係の不安</td><td className="p-2 border border-slate-300">かなりある / とても強い</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
                                                     
-                                                    <tr><td rowSpan="8" className="p-2 border border-slate-300 font-bold bg-indigo-50 text-indigo-800 text-center">職制<br/>回答</td><td className="p-2 border border-slate-300">Q0-3. 復職後の業務内容</td><td className="p-2 border border-slate-300">未定</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
+                                                    <tr><td rowSpan="8" className="p-2 border border-slate-300 font-bold bg-indigo-50 text-indigo-800 text-center">職制<br/>回答</td><td className="p-2 border border-slate-300">Q0-3. 復職後の業務内容の決定状況</td><td className="p-2 border border-slate-300">未定</td><td className="p-2 border border-slate-300 font-bold text-red-600">+5</td></tr>
                                                     <tr><td className="p-2 border border-slate-300">Q2-1. 業務の安全上の懸念</td><td className="p-2 border border-slate-300">かなりある</td><td className="p-2 border border-slate-300 font-bold text-red-600">+15</td></tr>
                                                     <tr><td className="p-2 border border-slate-300">Q2-4. 必要な配慮の実施可否</td><td className="p-2 border border-slate-300">実施困難</td><td className="p-2 border border-slate-300 font-bold text-red-600">+15</td></tr>
                                                     <tr><td className="p-2 border border-slate-300">Q2-5. 単独・危険作業の回避</td><td className="p-2 border border-slate-300">困難</td><td className="p-2 border border-slate-300 font-bold text-red-600">+10</td></tr>
@@ -1238,7 +1473,8 @@
                                                     <tbody className="divide-y divide-slate-100">
                                                         {cases.map(c => {
                                                             const idleDays = getIdleDays(c.lastUpdated);
-                                                            const isIdle = idleDays >= 5 && c.phase < 5;
+                                                            const threshold = getIdleThreshold(c.phase);
+                                                            const isIdle = idleDays >= threshold && c.phase < 5;
                                                             return (
                                                             <tr key={c.id} className="hover:bg-blue-50 transition-colors">
                                                                 <td className="p-4 text-slate-600">{c.empId || '未入力'}</td>
@@ -1363,19 +1599,25 @@
                                         </div>
                                     </div>
                                     <div className="flex flex-wrap gap-2">
+                                        {canViewShobyo && (
+                                            <button onClick={() => setShowShobyoModal(true)} className="text-sm bg-amber-50 hover:bg-amber-100 text-amber-800 px-3.5 py-2 rounded-lg font-bold flex items-center gap-1.5 transition-colors border border-amber-300 shadow-sm">
+                                                <FileText className="w-4 h-4"/> 傷病手当・FAX管理
+                                                {shobyoClaims.length > 0 && <span className="bg-amber-600 text-white text-[10px] px-1.5 py-0.5 rounded-full">{shobyoClaims.length}</span>}
+                                            </button>
+                                        )}
                                         {(actualPhase >= 3 || formData.sim_patterns) && (
-                                            <button onClick={() => setShowSimHistoryModal(true)} className="text-sm bg-sky-50 hover:bg-sky-100 text-sky-700 px-4 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-sky-200 shadow-sm"><Calendar className="w-4 h-4"/> 有休プラン確認</button>
+                                            <button onClick={() => setShowSimHistoryModal(true)} className="text-sm bg-sky-50 hover:bg-sky-100 text-sky-700 px-3.5 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-sky-200 shadow-sm"><Calendar className="w-4 h-4"/> 有休プラン確認</button>
                                         )}
                                         {(isAdmin || canEdit('ohp')) && (
-                                            <button onClick={handleExportCSV} className="text-sm bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-4 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-emerald-200 shadow-sm" title="入力データをCSVファイルとしてダウンロード"><Download className="w-4 h-4"/> データ抽出(CSV)</button>
+                                            <button onClick={handleExportCSV} className="text-sm bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3.5 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-emerald-200 shadow-sm" title="入力データをCSVファイルとしてダウンロード"><Download className="w-4 h-4"/> データ抽出(CSV)</button>
                                         )}
                                         {(actualPhase >= 4) && (
-                                            <button onClick={() => window.print()} className="text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-4 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-indigo-200 shadow-sm"><Printer className="w-4 h-4"/> 復帰プラン印刷(PDF)</button>
+                                            <button onClick={() => window.print()} className="text-sm bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-3.5 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-indigo-200 shadow-sm"><Printer className="w-4 h-4"/> 復帰プラン印刷(PDF)</button>
                                         )}
                                         {(isAdmin || canEdit('employee')) && (
-                                            <button onClick={resetData} className="text-sm bg-red-50 hover:bg-red-100 text-red-600 px-4 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-red-200" title="⚠️全データ初期化(削除)"><RotateCcw className="w-4 h-4"/><span className="hidden sm:inline">リセット(削除)</span></button>
+                                            <button onClick={resetData} className="text-sm bg-red-50 hover:bg-red-100 text-red-600 px-3.5 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-red-200" title="⚠️全データ初期化(削除)"><RotateCcw className="w-4 h-4"/><span className="hidden sm:inline">リセット</span></button>
                                         )}
-                                        <button onClick={() => setCurrentView('dashboard')} className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-slate-300"><ChevronLeft className="w-4 h-4"/> 一覧へ戻る</button>
+                                        <button onClick={() => setCurrentView('dashboard')} className="text-sm bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2 rounded-lg font-bold flex items-center gap-1 transition-colors border border-slate-300"><ChevronLeft className="w-4 h-4"/> 一覧へ戻る</button>
                                     </div>
                                 </div>
 
@@ -1513,7 +1755,7 @@
                                                             
                                                             const ohpEmails = getEmailsByRole('ohp');
                                                             const subject = `【就業支援ポータル】発生報告の提出 (${formData.name}さん)`;
-                                                            const body = `保健師・産業医担当者 様\n\n${formData.name} さんから新しい発生報告が提出されました。\nポータルを確認し、担当上司のアサインを行ってください。\n\n▼ポータルURL\n[システムのURLをここに記載]`;
+                                                            const body = `保健師・産業医担当者 様\n\n${formData.name} さんから新しい発生報告が提出されました。\nポータルを確認し、担当上司のアサインを行ってください。\n\n▼ポータルURL\n${getPortalUrl()}`;
                                                             
                                                             setEmailDraft({
                                                                 to: ohpEmails,
@@ -1576,7 +1818,7 @@
                                                                     
                                                                     if(formData.manager_email) {
                                                                         const subject = `【就業支援ポータル】${formData.name}さんの職制評価依頼`;
-                                                                        const body = `職制担当者 様\n\n就業支援ポータルより、${formData.name}さんの「職制評価」の入力依頼が届いています。\nポータルにログインし、「Step 2: 職制評価フォーム」より現在の状況と受け入れ体制についてご回答をお願いいたします。\n\n▼ポータルURL\n[システムのURLをここに記載]`;
+                                                                        const body = `職制担当者 様\n\n就業支援ポータルより、${formData.name}さんの「職制評価」の入力依頼が届いています。\nポータルにログインし、「Step 2: 職制評価フォーム」より現在の状況と受け入れ体制についてご回答をお願いいたします。\n\n▼ポータルURL\n${getPortalUrl()}`;
                                                                         openMailClient(formData.manager_email, subject, body);
                                                                     }
                                                                 }}
@@ -1629,6 +1871,8 @@
                                                             <h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">0. 基本確認</h4>
                                                             {renderQ('mgr_q0_1', 'Q0-1. 本人の復職予定先はどの勤務形態ですか', ['デスクワーク（日勤）', '現場勤務（昼専）', '交替勤務', 'その他'], !canEdit1, formData, handleInputChange)}
                                                             <label className="block text-xs font-bold text-slate-700 mb-1">Q0-2. 復職後に予定している業務内容を記入してください</label>{renderText('mgr_q0_2', '業務の詳細', !canEdit1, formData, handleInputChange)}
+                                                            {renderQ('mgr_q0_3', 'Q0-3. 復職後の業務内容の決定状況', ['決定済', 'おおむね決定', '調整中', '未定'], !canEdit1, formData, handleInputChange)}
+                                                            <label className="block text-xs font-bold text-slate-700 mb-1">Q0-4. 職制が予定している配慮内容（任意・復帰プランPDFに反映）</label>{renderText('mgr_q6_1', '例：復職後1ヶ月間は残業なし、日勤固定でフォロー担当者を配置など', !canEdit1, formData, handleInputChange)}
                                                         </div>
                                                         <div><h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">1. 勤務継続に関する評価</h4>{mgrQuestions.q1.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}</div>
                                                         <div><h4 className="font-bold text-slate-800 mb-3 border-b-2 border-indigo-200 pb-2">2. 安全就業に関する評価</h4>{mgrQuestions.q2.map(q => renderQ(q[0], q[1], q[2], !canEdit1, formData, handleInputChange))}</div>
@@ -1647,7 +1891,7 @@
                                                                 saveData({ phase: 2 });
                                                                 const ohpEmails = getEmailsByRole('ohp');
                                                                 const subject = `【就業支援ポータル】職制評価の完了 (${formData.name}さん)`;
-                                                                const body = `保健師・産業医担当者 様\n\n${formData.name} さんの職制評価が完了し、システムによる自動リスク判定が算出されました。\nポータルを確認し、復職ルートの最終決定を行ってください。\n\n▼ポータルURL\n[システムのURLをここに記載]`;
+                                                                const body = `保健師・産業医担当者 様\n\n${formData.name} さんの職制評価が完了し、システムによる自動リスク判定が算出されました。\nポータルを確認し、復職ルートの最終決定を行ってください。\n\n▼ポータルURL\n${getPortalUrl()}`;
                                                                 openMailClient(ohpEmails, subject, body);
                                                             }} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-8 rounded-full shadow-md flex items-center gap-2 transition-transform hover:scale-105">
                                                                 評価を送信して自動判定へ <Activity className="w-5 h-5"/>
@@ -1791,14 +2035,21 @@
                                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 animate-fade-in-up">
                                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 border-b pb-3">
                                             <h2 className="text-xl font-bold flex items-center gap-2 text-slate-800"><span className="bg-blue-600 text-white px-3 py-1 rounded-md text-sm">【Step 4】 就業支援PG</span> 療養専念・復帰準備期</h2>
-                                            {simViewStep !== null && simViewStep !== pgStep && (
-                                                <button onClick={() => setSimViewStep(null)} className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 self-start">
-                                                    現在の進行ステップに戻る <ChevronRight className="w-3.5 h-3.5"/>
-                                                </button>
-                                            )}
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                {canViewShobyo && (
+                                                    <button type="button" onClick={() => setShowShobyoModal(true)} className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold px-3 py-1.5 rounded-lg flex items-center gap-1">
+                                                        <FileText className="w-3.5 h-3.5"/> 傷病手当金・FAX管理表を開く
+                                                    </button>
+                                                )}
+                                                {simViewStep !== null && simViewStep !== pgStep && (
+                                                    <button onClick={() => setSimViewStep(null)} className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 font-bold px-3 py-1.5 rounded-lg flex items-center gap-1">
+                                                        現在の進行ステップに戻る <ChevronRight className="w-3.5 h-3.5"/>
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
 
-                                        {/* Phase 3 サブステップ切り替えナビゲーション（いつでも行き来・振り返り可能） */}
+                                        {/* Phase 3 サブステップ切り替えナビゲーション */}
                                         <div className="mb-8 bg-slate-50 p-2 rounded-xl border border-slate-200 flex flex-wrap gap-1.5">
                                             {[
                                                 { step: 0, label: '0. 有休・休業シミュレーション' },
@@ -1828,7 +2079,7 @@
                                             <div className="text-center p-12 bg-slate-50 rounded-xl border border-slate-200"><Clock className="w-12 h-12 text-slate-300 mx-auto mb-4"/><h3 className="text-xl font-bold text-slate-700 mb-2">現在のステップ進行中</h3><p className="text-slate-500">現在、対象者が療養状況の報告、および復帰に向けた準備を行っています。</p></div>
                                         ) : (
                                             <div className="space-y-12">
-                                                {/* Phase 3, Step 0: 有休・休業シミュレーション（カレンダー＆日数ハイブリッド対応） */}
+                                                {/* Phase 3, Step 0: 有休・休業シミュレーション */}
                                                 {activePgStep === 0 && (() => {
                                                     const currentPat = simPatterns[simActiveTab] || simPatterns[0];
                                                     const metrics = getPatternMetrics(currentPat);
@@ -1860,7 +2111,6 @@
                                                                 )}
                                                             </div>
 
-                                                            {/* 1. 基本日数・休業予定期間の入力 */}
                                                             <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-sm">
                                                                 <h4 className="font-bold text-sm text-slate-700 mb-3 flex items-center gap-2"><span className="bg-sky-100 text-sky-800 w-5 h-5 rounded-full flex items-center justify-center text-xs">1</span> 保有日数と休業予定期間の入力</h4>
                                                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1883,7 +2133,6 @@
                                                                 </div>
                                                             </div>
 
-                                                            {/* 2. パターン切り替え＆カレンダー／日数配分 */}
                                                             <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                                                                 <div className="flex border-b border-slate-200 bg-slate-50">
                                                                     {[0, 1, 2].map(idx => (
@@ -1900,7 +2149,6 @@
                                                                 </div>
 
                                                                 <div className="p-5 space-y-5">
-                                                                    {/* パターン名 ＆ 計算方式切り替え */}
                                                                     <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                                                                         <div className="flex-grow">
                                                                             <label className="block text-xs font-bold text-slate-500 mb-1">パターン名称（相談メモ）</label>
@@ -1920,7 +2168,6 @@
                                                                     </div>
 
                                                                     {currentPat.inputMode === 'manual' ? (
-                                                                        /* 日数直接入力モード */
                                                                         <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
                                                                             <p className="text-xs text-slate-600 font-medium">※欠勤日数や有休消化日数がすでに分かっている場合は、こちらに直接日数を入力して試算できます。</p>
                                                                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1939,7 +2186,6 @@
                                                                             </div>
                                                                         </div>
                                                                     ) : (
-                                                                        /* カレンダーポチポチ選択モード */
                                                                         <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
                                                                             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                                                                                 <div className="text-xs text-slate-600 font-medium">
@@ -1955,14 +2201,12 @@
                                                                                 )}
                                                                             </div>
 
-                                                                            {/* 月移動ヘッダー */}
                                                                             <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-lg border border-slate-200">
                                                                                 <button type="button" onClick={() => shiftMonth(-1)} className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded font-bold text-xs text-slate-700 flex items-center gap-1"><ChevronLeft className="w-4 h-4"/> 前月</button>
                                                                                 <div className="font-black text-base text-slate-800">{calY}年 {calM}月</div>
                                                                                 <button type="button" onClick={() => shiftMonth(1)} className="px-3 py-1 bg-slate-100 hover:bg-slate-200 rounded font-bold text-xs text-slate-700 flex items-center gap-1">次月 <ChevronRight className="w-4 h-4"/></button>
                                                                             </div>
 
-                                                                            {/* カレンダーグリッド */}
                                                                             <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                                                                                 <div className="grid grid-cols-7 bg-slate-100 border-b border-slate-200 text-center text-xs font-bold py-2">
                                                                                     <div className="text-red-600">日</div>
@@ -2019,7 +2263,6 @@
                                                                         </div>
                                                                     )}
 
-                                                                    {/* 計算結果サマリーカード */}
                                                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
                                                                         <div className={`p-3 rounded-lg border ${metrics.remainPaid < 0 ? 'bg-red-50 border-red-300' : 'bg-emerald-50/70 border-emerald-200'}`}>
                                                                             <div className="text-xs font-bold text-slate-600 mb-1">使用有休 / 残</div>
@@ -2047,7 +2290,6 @@
                                                                         </div>
                                                                     </div>
 
-                                                                    {/* 自動アラート・制度アドバイス */}
                                                                     <div className="space-y-2">
                                                                         {metrics.absenceDays >= 60 && (
                                                                             <div className="p-3.5 bg-red-50 border-l-4 border-red-500 rounded-r-lg flex items-start gap-2.5 text-red-800">
@@ -2067,7 +2309,7 @@
                                                                         ) : metrics.totalDays > 0 && (
                                                                             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center gap-2 text-emerald-800 text-xs sm:text-sm font-bold">
                                                                                 <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0"/>
-                                                                                <span>最初の3日間（傷病手当金の待期期間）を有休でカバーできています（4日目以降以降から支給対象）。</span>
+                                                                                <span>最初の3日間（傷病手当金の待期期間）を有休でカバーできています（4日目以降から支給対象）。</span>
                                                                             </div>
                                                                         )}
                                                                         {(metrics.remainPaid < 0 || metrics.remainLS < 0) && (
@@ -2080,7 +2322,6 @@
                                                                 </div>
                                                             </div>
 
-                                                            {/* 3. 3パターン横並び比較表 */}
                                                             <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
                                                                 <div className="p-3 bg-slate-50 border-b border-slate-200 font-bold text-xs sm:text-sm text-slate-700">3パターン比較一覧（あとから振り返り閲覧可能）</div>
                                                                 <div className="overflow-x-auto">
@@ -2127,7 +2368,6 @@
                                                                 </div>
                                                             </div>
 
-                                                            {/* 保存・Phase Ⅰへ進むボタン */}
                                                             {canEditSim && (
                                                                 <div className="flex flex-col sm:flex-row justify-end items-center gap-3 pt-2">
                                                                     <button type="button" onClick={() => saveData({ sim_paid_leave: simPaidLeave, sim_life_support: simLifeSupport, sim_start_date: simStartDate, sim_end_date: simEndDate, sim_patterns: simPatterns, sim_selected_pattern: simSelectedPattern })} className="px-5 py-2.5 bg-white border border-sky-300 text-sky-700 hover:bg-sky-50 font-bold rounded-lg text-sm shadow-sm transition-colors w-full sm:w-auto">
@@ -2160,6 +2400,12 @@
                                                             {pgStep > 1 && <span className="bg-green-100 text-green-700 text-xs px-2 py-1 rounded font-bold flex items-center gap-1"><Check className="w-3 h-3"/> 提出済</span>}
                                                         </div>
                                                     </div>
+                                                    {formData.doctor_final_judgment === 'impossible' && pgStep === 1 && (
+                                                        <div className="mb-4 p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-lg text-amber-900 text-sm font-bold flex items-center gap-2">
+                                                            <AlertTriangle className="w-5 h-5 text-amber-600 flex-shrink-0"/>
+                                                            <span>前回の産業医判定により「療養継続」となっています。引き続き療養に専念し、体調が整い次第改めて報告を行ってください。</span>
+                                                        </div>
+                                                    )}
                                                     <div className="border border-slate-200 rounded-lg p-6 bg-slate-50 mb-4">
                                                         <div><label className="block text-sm font-medium text-slate-700 mb-2">最近の健康状態について</label><textarea name="report_health" value={formData.report_health || ''} onChange={handleInputChange} disabled={!canEdit('employee') && !isAdmin} className={`w-full p-3 border rounded-md h-24 text-sm outline-none focus:ring-2 focus:ring-blue-500 ${(!canEdit('employee') && !isAdmin) && formData.report_health ? 'bg-blue-50 border-blue-200 text-blue-900 font-medium' : (!canEdit('employee') && !isAdmin) ? 'bg-slate-100 border-slate-200 text-slate-500' : 'bg-white border-slate-300'}`}></textarea></div>
                                                     </div>
@@ -2176,7 +2422,7 @@
                                                                     saveData({ pg_step: 2 });
                                                                     const mgrEmail = usersList.find(u => u.id === formData.assigned_manager_id)?.email || '';
                                                                     const subject = `【就業支援ポータル】療養状況報告の提出 (${formData.name}さん)`;
-                                                                    const body = `職制担当者 様\n\n${formData.name} さんから療養状況報告が提出されました。\nポータルより状況をご確認ください。`;
+                                                                    const body = `職制担当者 様\n\n${formData.name} さんから療養状況報告が提出されました。\nポータルより状況をご確認ください。\n\n▼ポータルURL\n${getPortalUrl()}`;
                                                                     
                                                                     setEmailDraft({
                                                                         to: mgrEmail,
@@ -2228,7 +2474,7 @@
                                                                     saveData({ pg_step: 3 });
                                                                     const mgrEmail = usersList.find(u => u.id === formData.assigned_manager_id)?.email || '';
                                                                     const subject = `【就業支援ポータル】復帰準備チェックリストの提出 (${formData.name}さん)`;
-                                                                    const body = `職制担当者 様\n\n${formData.name} さんから復帰準備のチェックリストが提出されました。\nポータルより内容を確認し、受け入れ判定を行ってください。`;
+                                                                    const body = `職制担当者 様\n\n${formData.name} さんから復帰準備のチェックリストが提出されました。\nポータルより内容を確認し、受け入れ判定を行ってください。\n\n▼ポータルURL\n${getPortalUrl()}`;
                                                                     
                                                                     setEmailDraft({
                                                                         to: mgrEmail,
@@ -2268,7 +2514,7 @@
                                                                             saveData({ pg_step: 4 });
                                                                             const ohpEmails = getEmailsByRole('ohp');
                                                                             const subject = `【就業支援ポータル】職制受け入れ判定の完了 (${formData.name}さん)`;
-                                                                            const body = `保健師・産業医担当者 様\n\n${formData.name} さんの職制受け入れ判定が完了しました。\nポータルより内容を確認し、最終の就業判定を行ってください。`;
+                                                                            const body = `保健師・産業医担当者 様\n\n${formData.name} さんの職制受け入れ判定が完了しました。\nポータルより内容を確認し、最終の就業判定を行ってください。\n\n▼ポータルURL\n${getPortalUrl()}`;
                                                                             openMailClient(ohpEmails, subject, body);
                                                                         }} className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors">回答を送信し 最終判定(専門職) へ <ChevronRight className="w-4 h-4"/></button>
                                                                     ) : (
@@ -2291,25 +2537,47 @@
                                                         <div className="bg-slate-50 p-6 rounded-lg border border-slate-200 text-center"><Lock className="w-8 h-8 text-slate-300 mx-auto mb-2"/><p className="text-sm text-slate-500 font-medium">現在、すべての報告をもとに専門職（産業医・保健師）が最終の就業判定を行っています。</p></div>
                                                     ) : (
                                                         <div className={`border rounded-lg p-6 shadow-sm ${(canEdit('ohp') || isAdmin) && pgStep === 4 ? 'bg-white border-purple-300' : 'bg-slate-50 border-slate-200'}`}>
-                                                            <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><CheckCircle className="w-5 h-5 text-purple-600"/> 産業医: 就業上の措置に関する最終判定</h4>
+                                                            <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2"><CheckCircle className="w-5 h-5 text-purple-600"/> 産業医: 就業上の措置に関する最終判定 <span className="text-xs text-red-500 font-bold">*必須</span></h4>
                                                             <div className="flex flex-col gap-3">
                                                                 <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'normal' ? 'bg-purple-100 border-purple-400 shadow-sm' : !canEdit('ohp') && !isAdmin ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-purple-50 cursor-pointer'}`}><input type="radio" name="doctor_final_judgment" value="normal" checked={formData.doctor_final_judgment === 'normal'} onChange={handleInputChange} disabled={!canEdit('ohp') && !isAdmin} className={`w-5 h-5 text-purple-600 ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'normal' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'normal' ? 'text-purple-900' : 'text-slate-700'}`}>① 通常就業可 (制限・配慮なし)</span></label>
                                                                 <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'restricted' ? 'bg-purple-100 border-purple-400 shadow-sm' : !canEdit('ohp') && !isAdmin ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-purple-50 cursor-pointer'}`}><input type="radio" name="doctor_final_judgment" value="restricted" checked={formData.doctor_final_judgment === 'restricted'} onChange={handleInputChange} disabled={!canEdit('ohp') && !isAdmin} className={`w-5 h-5 text-purple-600 ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'restricted' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'restricted' ? 'text-purple-900' : 'text-slate-700'}`}>② 就業制限・配慮が必要 (条件付き就業可)</span></label>
-                                                                <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'impossible' ? 'bg-purple-100 border-purple-400 shadow-sm' : !canEdit('ohp') && !isAdmin ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-purple-50 cursor-pointer'}`}><input type="radio" name="doctor_final_judgment" value="impossible" checked={formData.doctor_final_judgment === 'impossible'} onChange={handleInputChange} disabled={!canEdit('ohp') && !isAdmin} className={`w-5 h-5 text-purple-600 ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'impossible' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'impossible' ? 'text-red-700' : 'text-red-500'}`}>③ 就業不可 (療養継続)</span></label>
+                                                                <label className={`flex items-center gap-2 p-3 rounded border transition-colors ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'impossible' ? 'bg-red-100 border-red-400 shadow-sm' : !canEdit('ohp') && !isAdmin ? 'bg-slate-50 border-slate-100 opacity-50' : 'bg-slate-50 border-slate-200 hover:bg-red-50 cursor-pointer'}`}><input type="radio" name="doctor_final_judgment" value="impossible" checked={formData.doctor_final_judgment === 'impossible'} onChange={handleInputChange} disabled={!canEdit('ohp') && !isAdmin} className={`w-5 h-5 text-red-600 ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'impossible' ? 'opacity-100' : 'disabled:opacity-50'}`}/><span className={`font-bold text-sm ${!canEdit('ohp') && !isAdmin && formData.doctor_final_judgment === 'impossible' ? 'text-red-800' : 'text-red-600'}`}>③ 就業不可 (療養継続・Phase Ⅰへ戻して療養を続ける)</span></label>
                                                             </div>
+
+                                                            {!formData.doctor_final_judgment && (canEdit('ohp') || isAdmin) && pgStep === 4 && (
+                                                                <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 font-bold flex items-center gap-2">
+                                                                    <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0"/>
+                                                                    <span>上記の最終判定（①〜③）のいずれかを選択すると、確定ボタンが有効になります。</span>
+                                                                </div>
+                                                            )}
 
                                                             {(canEdit('ohp') || isAdmin) && (
                                                                 <div className="flex flex-col sm:flex-row justify-between items-center mt-8 pt-6 border-t border-slate-100 gap-4">
                                                                     <button onClick={() => { requestConfirm("まだ復帰できる状態にないと判断し、対象者を「Phase Ⅰ」に差し戻しますか？", () => { saveData({ pg_step: 1, doctor_final_judgment: '' }); }); }} className="bg-red-50 hover:bg-red-100 text-red-600 font-bold py-2 px-4 rounded-md shadow-sm flex items-center justify-center gap-2 border border-red-200 transition-colors w-full sm:w-auto"><RotateCcw className="w-4 h-4"/> Phase Ⅰ へ差し戻す</button>
                                                                     {pgStep === 4 ? (
-                                                                        <button onClick={() => {
-                                                                            if(formData.doctor_final_judgment === 'restricted') {
-                                                                                setTempConditionText(formData.condition_text || '');
-                                                                                setShowConditionModal(true);
-                                                                            } else {
-                                                                                finalizePhase3To4("");
-                                                                            }
-                                                                        }} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-8 rounded-md shadow-sm flex items-center justify-center gap-2 transition-colors w-full sm:w-auto">判定確定・復帰へ (Step 5へ) <ChevronRight className="w-5 h-5"/></button>
+                                                                        formData.doctor_final_judgment === 'impossible' ? (
+                                                                            <button
+                                                                                onClick={handleImpossibleJudgment}
+                                                                                className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-8 rounded-md shadow-sm flex items-center justify-center gap-2 transition-colors w-full sm:w-auto"
+                                                                            >
+                                                                                療養継続を確定する（Phase Ⅰへ戻す） <RotateCcw className="w-5 h-5"/>
+                                                                            </button>
+                                                                        ) : (
+                                                                            <button
+                                                                                disabled={!formData.doctor_final_judgment}
+                                                                                onClick={() => {
+                                                                                    if(formData.doctor_final_judgment === 'restricted') {
+                                                                                        setTempConditionText(formData.condition_text || '');
+                                                                                        setShowConditionModal(true);
+                                                                                    } else {
+                                                                                        finalizePhase3To4("");
+                                                                                    }
+                                                                                }}
+                                                                                className={`font-bold py-3 px-8 rounded-md shadow-sm flex items-center justify-center gap-2 transition-colors w-full sm:w-auto ${!formData.doctor_final_judgment ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700 text-white'}`}
+                                                                            >
+                                                                                判定確定・復帰へ (Step 5へ) <ChevronRight className="w-5 h-5"/>
+                                                                            </button>
+                                                                        )
                                                                     ) : (
                                                                         <button onClick={() => saveData({})} className="bg-slate-600 hover:bg-slate-700 text-white font-bold py-2 px-6 rounded-md shadow-sm flex items-center gap-2 transition-colors">内容を修正・保存 <Check className="w-4 h-4"/></button>
                                                                     )}
@@ -2374,7 +2642,6 @@
                                                 </div>
                                             ))}
                                             
-                                            {/* Alert for Evaluation Gap */}
                                             {hasEvalGap && (
                                                 <div className="bg-orange-50 border border-orange-300 p-4 rounded-lg flex items-center gap-3 animate-pulse">
                                                     <AlertTriangle className="w-6 h-6 text-orange-600 flex-shrink-0"/>
@@ -2401,7 +2668,7 @@
                                                                 saveData({ phase: 5 }); 
                                                                 const empEmail = formData.emp_contact_email || '';
                                                                 const subject = `【就業支援ポータル】プログラム完了のお知らせ (${formData.name}さん)`;
-                                                                const body = `${formData.name} 様\n\n就業支援プログラムがすべて完了いたしました。\n今後のご活躍と健康の維持をお祈りしております。`;
+                                                                const body = `${formData.name} 様\n\n就業支援プログラムがすべて完了いたしました。\n今後のご活躍と健康の維持をお祈りしております。\n\n▼ポータルURL\n${getPortalUrl()}`;
                                                                 if (empEmail) {
                                                                     if (currentRole === 'employee') {
                                                                         setEmailDraft({ to: empEmail, subject: subject, body: body, onClose: () => {} });
@@ -2512,7 +2779,7 @@
                                              formData.doctor_final_judgment === 'normal' || (formData.phase >= 4 && !formData.doctor_final_judgment) ? '配慮不要（通常就業のため）' : '未確認'}
                                         </td>
                                     </tr>
-                                    <tr><th className="border border-black p-2 bg-gray-100">職制が予定している配慮内容</th><td className="border border-black p-2">{formData.mgr_q6_1 || (formData.doctor_final_judgment === 'normal' || (formData.phase >= 4 && !formData.doctor_final_judgment) ? '配慮不要' : '特になし')}</td></tr>
+                                    <tr><th className="border border-black p-2 bg-gray-100">職制が予定している配慮内容</th><td className="border border-black p-2 whitespace-pre-wrap">{formData.mgr_q6_1 || (formData.doctor_final_judgment === 'normal' || (formData.phase >= 4 && !formData.doctor_final_judgment) ? '配慮不要' : '特になし')}</td></tr>
                                 </tbody>
                             </table>
                         </div>
