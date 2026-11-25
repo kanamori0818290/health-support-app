@@ -122,6 +122,7 @@
 
         const TENKAI_PATTERNS = {
             A: {
+                shortName: 'Aパターン',
                 title: 'Aパターン：基礎生活リズム・日勤時間帯定着',
                 desc: '決まった時刻の起床・就寝と、日中の活動リズムを2週間安定させるプラン',
                 checks: [
@@ -131,6 +132,7 @@
                 ]
             },
             B: {
+                shortName: 'Bパターン',
                 title: 'Bパターン：通勤模擬・デスクワーク負荷訓練',
                 desc: '実際の通勤時間帯の移動と、座位でのPC・書類作業負荷を2週間試すプラン',
                 checks: [
@@ -140,6 +142,7 @@
                 ]
             },
             C: {
+                shortName: 'Cパターン',
                 title: 'Cパターン：体力回復・現場作業負荷訓練',
                 desc: '立ち作業・歩行・体力負荷を段階的に高めて2週間継続するプラン',
                 checks: [
@@ -148,19 +151,8 @@
                     '作業手順の確認や注意力の維持が安定しており、翌日に疲労を持ち越さない'
                 ]
             },
-            AC: {
-                title: 'A＋Cパターン：基礎生活リズム定着 ＋ 体力回復・現場作業負荷訓練',
-                desc: '基礎生活リズム（A）と体力回復・現場作業負荷（C）の両方を2週間かけて並行定着させるプラン',
-                checks: [
-                    '【A】毎朝、就業開始時刻の1時間半前までに起床できている',
-                    '【A】日中の昼寝なしで、18時頃まで安定した覚醒状態を保てている',
-                    '【A】週5日、1日4〜6時間以上の活動（読書・PC作業・外出）を継続できている',
-                    '【C】1日6,000〜8,000歩以上の歩行や立ち姿勢の維持を2週間継続できている',
-                    '【C】しゃがむ・かがむ・階段昇降などの動作で痛みや息切れが出ない',
-                    '【C】作業手順の確認や注意力の維持が安定しており、翌日に疲労を持ち越さない'
-                ]
-            },
             D: {
+                shortName: 'Dパターン',
                 title: 'Dパターン：交替勤務・シフト適応シミュレーション',
                 desc: '早朝・遅番等の時間帯シフトやインターバル休息を2週間確認するプラン',
                 checks: [
@@ -170,6 +162,8 @@
                 ]
             }
         };
+
+        const TENKAI_PATTERN_ORDER = ['A', 'B', 'C', 'D'];
 
         const WORK_STYLE_LABELS = {
             '1': 'デスクワーク（日勤）',
@@ -456,9 +450,10 @@
             });
             const [showSimSummaryModal, setShowSimSummaryModal] = useState(false);
 
-            // --- Phase Ⅰ / Ⅱ 保健師経由差し戻し理由入力ステート ---
+            // --- Phase Ⅰ / Ⅱ 保健師経由差し戻し理由＆カスタム項目ステート ---
             const [p1MgrReturnReason, setP1MgrReturnReason] = useState('');
             const [p2HattenMgrReturnReason, setP2HattenMgrReturnReason] = useState('');
+            const [newCustomTenkaiCheckText, setNewCustomTenkaiCheckText] = useState('');
 
             // --- Phase Ⅱ 展開期 Outlook風2週間生活記録表（ドラッグ操作）ステート ---
             const [lifeWeekTab, setLifeWeekTab] = useState(1);
@@ -781,14 +776,14 @@
                 });
 
                 if (roleId === 'employee') {
-                    setCurrentView('detail'); setFormData({ id: 'demo_case', empId: '99999', name: 'デモユーザー', department: '営業部', phase: 3, pg_step: 1, lastUpdated: now }); setCurrentPhase(3);
+                    setCurrentView('detail'); setFormData({ id: 'demo_case', empId: '99999', name: 'デモユーザー', department: '営業部', phase: 3, pg_step: 2.1, p2_tenkai_patterns: ['A', 'C'], lastUpdated: now }); setCurrentPhase(3);
                 } else {
                     setCurrentView('dashboard');
                     setCases([
                         { id: 'd1', empId: '10001', name: '山田 太郎', department: '営業部', hire_date: '2024-04-01', phase: 0, phase0_submitted: true, symptom: '腰痛', lastUpdated: now },
                         { id: 'd2', empId: '10002', name: '佐藤 花子', department: '総務部', hire_date: '2019-04-01', phase: 1, assigned_manager_id: roleId === 'manager' ? `demo_${roleId}` : 'u2', symptom: '適応障害', lastUpdated: now - (7 * 86400000) }, 
                         { id: 'd3', empId: '10003', name: '鈴木 一郎', department: '製造部', hire_date: '2012-04-01', phase: 2, interview_requested: 'doctor', lastUpdated: now }, 
-                        { id: 'd4', empId: '10004', name: '高橋 健太', department: '開発部', hire_date: '2021-04-01', phase: 3, pg_step: 2.1, assigned_manager_id: roleId === 'manager' ? `demo_${roleId}` : 'u2', sim_start_date: formatDateObj(new Date()), sim_end_date: addDaysToDateStr(formatDateObj(new Date()), 90), sim_paid_leave: 20, sim_life_support: 5, lastUpdated: now },
+                        { id: 'd4', empId: '10004', name: '高橋 健太', department: '開発部', hire_date: '2021-04-01', phase: 3, pg_step: 2.1, p2_tenkai_patterns: ['A', 'C'], assigned_manager_id: roleId === 'manager' ? `demo_${roleId}` : 'u2', sim_start_date: formatDateObj(new Date()), sim_end_date: addDaysToDateStr(formatDateObj(new Date()), 90), sim_paid_leave: 20, sim_life_support: 5, lastUpdated: now },
                         { id: 'd5', empId: '10005', name: '伊藤 美咲', department: '人事部', hire_date: '2015-04-01', phase: 4, emp_q1: '4', mgr_q1: '2', p2_m5_restriction: 'yes', p2_m5_restriction_detail: '残業禁止・重量物5kg以下', p2_m5_restriction_end: '2027-01-31', p2_m5_return_date: '2026-12-01', p2_m5_followup_date: '2026-12-15', p2_m5_followup_time: '14:00', p2_m5_use_followsheet: 'yes', lastUpdated: now }, 
                     ]);
                 }
@@ -1303,7 +1298,7 @@
             const handleExportCSV = () => {
                 let csvContent = "\uFEFFデータ項目,入力値\n";
                 Object.keys(formData).forEach(key => {
-                    if (['contact_logs', 'sim_patterns', 'shobyo_applications', 'medical_certificates', 'p2_life_records', 'p2_ohp_decision_doc', 'p2_hr_final_decision_doc'].includes(key)) return; 
+                    if (['contact_logs', 'sim_patterns', 'shobyo_applications', 'medical_certificates', 'p2_life_records', 'p2_ohp_decision_doc', 'p2_hr_final_decision_doc', 'p2_tenkai_patterns', 'p2_tenkai_custom_checks'].includes(key)) return; 
                     let val = formData[key] || '';
                     if (typeof val === 'string') { val = val.replace(/"/g, '""'); if (val.search(/("|,|\n)/g) >= 0) val = `"${val}"`; }
                     csvContent += `${key},${val}\n`;
@@ -1518,6 +1513,60 @@
                     await saveData({ medical_certificates: certificatesList.filter(c => c.id !== cert.id) });
                     if (previewCert && previewCert.id === cert.id) setPreviewCert(null);
                 });
+            };
+
+            // --- Phase Ⅱ 展開期 訓練パターン自由組み合わせカスタマイズ ハンドラ ---
+            const selectedTenkaiPatterns = useMemo(() => {
+                if (Array.isArray(formData.p2_tenkai_patterns) && formData.p2_tenkai_patterns.length > 0) {
+                    return TENKAI_PATTERN_ORDER.filter(k => formData.p2_tenkai_patterns.includes(k));
+                }
+                const legacy = formData.p2_tenkai_pattern || 'A';
+                if (legacy === 'AC') return ['A', 'C'];
+                if (TENKAI_PATTERNS[legacy]) return [legacy];
+                return ['A'];
+            }, [formData.p2_tenkai_patterns, formData.p2_tenkai_pattern]);
+
+            const selectedTenkaiComboLabel = useMemo(() => {
+                return selectedTenkaiPatterns.join(' ＋ ') + ' パターン';
+            }, [selectedTenkaiPatterns]);
+
+            const toggleTenkaiPattern = (patKey) => {
+                if (!canEdit('employee') && !isAdmin && !canEdit('ohp')) return;
+                const exists = selectedTenkaiPatterns.includes(patKey);
+                if (exists && selectedTenkaiPatterns.length <= 1) {
+                    showToast("訓練パターンは最低1つ以上選択してください。", "warning");
+                    return;
+                }
+                const nextList = exists
+                    ? selectedTenkaiPatterns.filter(k => k !== patKey)
+                    : TENKAI_PATTERN_ORDER.filter(k => [...selectedTenkaiPatterns, patKey].includes(k));
+                saveData({
+                    p2_tenkai_patterns: nextList,
+                    p2_tenkai_pattern: nextList.join('+')
+                });
+            };
+
+            const customTenkaiChecks = formData.p2_tenkai_custom_checks || [];
+
+            const handleAddCustomTenkaiCheck = () => {
+                if (!newCustomTenkaiCheckText.trim()) return;
+                const nextCustom = [
+                    ...customTenkaiChecks,
+                    { id: `custom_chk_${Date.now()}`, text: newCustomTenkaiCheckText.trim(), checked: false }
+                ];
+                saveData({ p2_tenkai_custom_checks: nextCustom });
+                setNewCustomTenkaiCheckText('');
+                showToast("個別カスタム確認項目を追加しました。", "success");
+            };
+
+            const handleToggleCustomTenkaiCheck = (id, checked) => {
+                const nextCustom = customTenkaiChecks.map(c => c.id === id ? { ...c, checked } : c);
+                saveData({ p2_tenkai_custom_checks: nextCustom });
+            };
+
+            const handleDeleteCustomTenkaiCheck = (id) => {
+                const nextCustom = customTenkaiChecks.filter(c => c.id !== id);
+                saveData({ p2_tenkai_custom_checks: nextCustom });
             };
 
             // --- Phase Ⅱ 展開期 Outlook風 2週間生活記録表（ドラッグ選択）ハンドラ ---
@@ -1835,8 +1884,6 @@
             const p1AchTriangleItems = PHASE1_ACHIEVE_ITEMS.filter(item => formData[item.id] === 'triangle');
 
             const selectedTenkaiWorkStyle = formData.p2_tenkai_work_style || '1';
-            const selectedTenkaiPatKey = formData.p2_tenkai_pattern || 'A';
-            const selectedTenkaiPatObj = TENKAI_PATTERNS[selectedTenkaiPatKey] || TENKAI_PATTERNS.A;
             const isTenkai2WeeksDone = Boolean(formData.p2_tenkai_2weeks_done);
             const isTenkaiDrBothOk = Boolean(formData.p2_tenkai_dr_agree && formData.p2_tenkai_dr_consult);
 
@@ -3876,7 +3923,7 @@
                                         )}
 
                                         {/* --------------------------------------------------------- */}
-                                        {/* pgStep 2.1: Phase Ⅱ 展開期（直近受診日・勤務＋A〜D/A+Cパターン2週間・主治医同意・Outlook風生活記録表） */}
+                                        {/* pgStep 2.1: Phase Ⅱ 展開期（直近受診日・勤務＋A〜D自由組み合わせカスタマイズ2週間・主治医同意・Outlook風生活記録表） */}
                                         {/* --------------------------------------------------------- */}
                                         {activePgTab === 2.1 && (
                                             <section className="space-y-6 animate-fade-in-up">
@@ -3895,7 +3942,7 @@
                                                 )}
 
                                                 <div className="border-2 border-sky-200 bg-sky-50/40 rounded-xl p-6 space-y-5">
-                                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                         <div className="bg-white p-4 rounded-xl border border-slate-200">
                                                             <label className="block text-xs font-bold text-slate-700 mb-1.5">① 直近の受診日を入力する <span className="text-red-500">*</span></label>
                                                             <input type="date" name="p2_tenkai_last_visit_date" value={formData.p2_tenkai_last_visit_date || ''} onChange={handleInputChange} disabled={!canEdit('employee') && !isAdmin} className="w-full p-2.5 border border-slate-300 rounded-lg text-sm font-bold bg-white"/>
@@ -3908,46 +3955,128 @@
                                                                 <option value="3">交替勤務</option>
                                                             </select>
                                                         </div>
-                                                        <div className="bg-white p-4 rounded-xl border border-slate-200">
-                                                            <label className="block text-xs font-bold text-slate-700 mb-1.5">②-2 訓練パターン（A〜D / A＋C）選択</label>
-                                                            <select name="p2_tenkai_pattern" value={selectedTenkaiPatKey} onChange={handleInputChange} disabled={!canEdit('employee') && !isAdmin} className="w-full p-2.5 border border-slate-300 rounded-lg text-sm font-bold bg-white">
-                                                                <option value="A">Aパターン（基礎生活リズム）</option>
-                                                                <option value="B">Bパターン（通勤模擬・デスク作業）</option>
-                                                                <option value="C">Cパターン（体力回復・現場負荷）</option>
-                                                                <option value="AC">A＋Cパターン（基礎生活リズム＋体力回復・現場負荷）</option>
-                                                                <option value="D">Dパターン（交替勤務・シフト適応）</option>
-                                                            </select>
+                                                    </div>
+
+                                                    {/* ②-2 訓練パターン（A〜D 複数選択で自由組み合わせカスタマイズ） */}
+                                                    <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+                                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                                            <div>
+                                                                <label className="block text-xs font-bold text-slate-800">②-2 訓練パターン（A〜D）の自由組み合わせカスタマイズ <span className="text-sky-700 font-black">※複数選択可（例：A＋C、A＋B など）</span></label>
+                                                                <p className="text-[11px] text-slate-500 mt-0.5">ケースや業務内容に合わせて該当するパターンをクリックして組み合わせてください。選択したパターンのチェック項目が下に自動で合体表示されます。</p>
+                                                            </div>
+                                                            <span className="text-xs font-black bg-sky-600 text-white px-3 py-1 rounded-full shadow-xs">
+                                                                現在の組み合わせ：{selectedTenkaiComboLabel}
+                                                            </span>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                                                            {TENKAI_PATTERN_ORDER.map((patKey) => {
+                                                                const patObj = TENKAI_PATTERNS[patKey];
+                                                                const isSelected = selectedTenkaiPatterns.includes(patKey);
+                                                                const canToggle = canEdit('employee') || isAdmin || canEdit('ohp');
+                                                                return (
+                                                                    <button
+                                                                        key={patKey}
+                                                                        type="button"
+                                                                        disabled={!canToggle}
+                                                                        onClick={() => toggleTenkaiPattern(patKey)}
+                                                                        className={`p-3 rounded-xl border-2 text-left transition-all flex flex-col justify-between gap-1.5 ${
+                                                                            isSelected
+                                                                                ? 'bg-sky-50 border-sky-600 shadow-xs ring-2 ring-sky-200'
+                                                                                : 'bg-slate-50 border-slate-200 hover:bg-white opacity-80 hover:opacity-100'
+                                                                        } ${!canToggle ? 'cursor-default' : 'cursor-pointer'}`}
+                                                                    >
+                                                                        <div className="flex items-center justify-between w-full">
+                                                                            <span className={`text-xs font-black px-2 py-0.5 rounded ${isSelected ? 'bg-sky-600 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                                                                                {isSelected ? '✓ ' : ''}{patObj.shortName}
+                                                                            </span>
+                                                                            <span className="text-[10px] font-bold text-slate-500">{patObj.checks.length}項目</span>
+                                                                        </div>
+                                                                        <div className="text-xs font-bold text-slate-800 leading-snug">{patObj.title.replace(`${patObj.shortName}：`, '')}</div>
+                                                                        <div className="text-[10px] text-slate-500 leading-tight">{patObj.desc}</div>
+                                                                    </button>
+                                                                );
+                                                            })}
                                                         </div>
                                                     </div>
 
+                                                    {/* 選択された組み合わせのチェックパターン一覧＋個別カスタム項目追加 */}
                                                     <div className="bg-white border border-sky-200 rounded-xl p-5 space-y-4">
                                                         <div>
                                                             <div className="flex flex-wrap items-center gap-2">
-                                                                <span className="text-xs font-bold bg-sky-600 text-white px-2.5 py-0.5 rounded">選択中のチェックパターン</span>
+                                                                <span className="text-xs font-bold bg-sky-600 text-white px-2.5 py-0.5 rounded">カスタム訓練チェックリスト</span>
                                                                 <span className="text-xs font-bold bg-indigo-50 text-indigo-800 border border-indigo-200 px-2.5 py-0.5 rounded">
                                                                     勤務形態：{WORK_STYLE_LABELS[selectedTenkaiWorkStyle] || 'デスクワーク（日勤）'}
                                                                 </span>
+                                                                <span className="text-xs font-bold bg-amber-50 text-amber-900 border border-amber-200 px-2.5 py-0.5 rounded">
+                                                                    適用パターン：{selectedTenkaiComboLabel}
+                                                                </span>
                                                             </div>
-                                                            <h4 className="font-bold text-slate-800 text-base mt-1.5">{selectedTenkaiPatObj.title}</h4>
-                                                            <p className="text-xs text-slate-500">{selectedTenkaiPatObj.desc}</p>
+                                                            <h4 className="font-bold text-slate-800 text-base mt-1.5">
+                                                                {selectedTenkaiPatterns.map(k => TENKAI_PATTERNS[k]?.shortName).join(' ＋ ')} の2週間確認項目
+                                                            </h4>
                                                         </div>
 
-                                                        <div className="space-y-2">
-                                                            {selectedTenkaiPatObj.checks.map((chkLabel, idx) => {
-                                                                const chkKey = `p2_tenkai_chk_${selectedTenkaiPatKey}_${idx}`;
+                                                        <div className="space-y-4">
+                                                            {selectedTenkaiPatterns.map((patKey) => {
+                                                                const patObj = TENKAI_PATTERNS[patKey];
+                                                                if (!patObj) return null;
                                                                 return (
-                                                                    <label key={chkKey} className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 border border-slate-200 cursor-pointer hover:bg-sky-50/50">
-                                                                        <input type="checkbox" name={chkKey} checked={Boolean(formData[chkKey])} onChange={handleCheckboxChange} disabled={!canEdit('employee') && !isAdmin} className="w-4 h-4 text-sky-600 rounded"/>
-                                                                        <span className="text-sm font-medium text-slate-800">{chkLabel}</span>
-                                                                    </label>
+                                                                    <div key={patKey} className="space-y-2">
+                                                                        <div className="text-xs font-black text-sky-900 bg-sky-100/70 px-3 py-1 rounded-md border border-sky-200">
+                                                                            【{patObj.shortName}】{patObj.title.replace(`${patObj.shortName}：`, '')}
+                                                                        </div>
+                                                                        {patObj.checks.map((chkLabel, idx) => {
+                                                                            const chkKey = `p2_tenkai_chk_${patKey}_${idx}`;
+                                                                            return (
+                                                                                <label key={chkKey} className="flex items-center gap-3 p-3 rounded-lg bg-slate-50 border border-slate-200 cursor-pointer hover:bg-sky-50/50">
+                                                                                    <input type="checkbox" name={chkKey} checked={Boolean(formData[chkKey])} onChange={handleCheckboxChange} disabled={!canEdit('employee') && !isAdmin} className="w-4 h-4 text-sky-600 rounded"/>
+                                                                                    <span className="text-sm font-medium text-slate-800">{chkLabel}</span>
+                                                                                </label>
+                                                                            );
+                                                                        })}
+                                                                    </div>
                                                                 );
                                                             })}
+
+                                                            {/* ケース個別カスタム確認項目（任意追加） */}
+                                                            <div className="pt-2 border-t border-slate-200 space-y-2">
+                                                                <div className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                                                                    <span>＋ ケース・業務内容に応じた個別追加項目（任意）</span>
+                                                                </div>
+                                                                {customTenkaiChecks.map((item) => (
+                                                                    <div key={item.id} className="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-amber-50/50 border border-amber-200">
+                                                                        <label className="flex items-center gap-3 cursor-pointer flex-grow">
+                                                                            <input type="checkbox" checked={Boolean(item.checked)} disabled={!canEdit('employee') && !isAdmin} onChange={(e) => handleToggleCustomTenkaiCheck(item.id, e.target.checked)} className="w-4 h-4 text-amber-600 rounded"/>
+                                                                            <span className="text-sm font-medium text-slate-800">{item.text}</span>
+                                                                        </label>
+                                                                        {(canEdit('employee') || isAdmin || canEdit('ohp')) && (
+                                                                            <button type="button" onClick={() => handleDeleteCustomTenkaiCheck(item.id)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 className="w-3.5 h-3.5"/></button>
+                                                                        )}
+                                                                    </div>
+                                                                ))}
+                                                                {(canEdit('employee') || isAdmin || canEdit('ohp')) && (
+                                                                    <div className="flex gap-2">
+                                                                        <input
+                                                                            type="text"
+                                                                            value={newCustomTenkaiCheckText}
+                                                                            onChange={(e) => setNewCustomTenkaiCheckText(e.target.value)}
+                                                                            onKeyPress={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddCustomTenkaiCheck(); } }}
+                                                                            placeholder="例：階段の昇降や軽い荷物の持ち運び動作を2週間試す"
+                                                                            className="flex-grow p-2 border border-slate-300 rounded-lg text-xs bg-white"
+                                                                        />
+                                                                        <button type="button" onClick={handleAddCustomTenkaiCheck} className="px-3.5 py-2 bg-slate-700 hover:bg-slate-800 text-white font-bold rounded-lg text-xs whitespace-nowrap flex items-center gap-1">
+                                                                            <Plus className="w-3.5 h-3.5"/> 項目を追加
+                                                                        </button>
+                                                                    </div>
+                                                                )}
+                                                            </div>
                                                         </div>
 
                                                         <div className="pt-3 border-t border-slate-200">
                                                             <label className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${isTenkai2WeeksDone ? 'bg-emerald-50 border-emerald-500' : 'bg-amber-50/60 border-amber-300'}`}>
                                                                 <input type="checkbox" name="p2_tenkai_2weeks_done" checked={isTenkai2WeeksDone} onChange={handleCheckboxChange} disabled={!canEdit('employee') && !isAdmin} className="w-5 h-5 text-emerald-600 rounded"/>
-                                                                <span className="text-sm sm:text-base font-black text-slate-800">上記のチェックパターンを2週間達成できていることを確認する</span>
+                                                                <span className="text-sm sm:text-base font-black text-slate-800">上記のチェックパターン（{selectedTenkaiComboLabel}）を2週間達成できていることを確認する</span>
                                                             </label>
                                                         </div>
 
@@ -4055,7 +4184,7 @@
                                                                     const nowStr = new Date().toLocaleString('ja-JP');
                                                                     saveData({
                                                                         pg_step: 2.5,
-                                                                        contact_logs: [...(formData.contact_logs || []), { date: nowStr, text: `【Phase Ⅱ 展開期完了 → 発展期へ移行】2週間パターン（${selectedTenkaiPatObj.title}）達成および主治医同意・相談確認が完了しました。`, author: `${currentUser?.name}`, role: currentRole }]
+                                                                        contact_logs: [...(formData.contact_logs || []), { date: nowStr, text: `【Phase Ⅱ 展開期完了 → 発展期へ移行】2週間パターン（${selectedTenkaiComboLabel}）達成および主治医同意・相談確認が完了しました。`, author: `${currentUser?.name}`, role: currentRole }]
                                                                     });
                                                                     setViewPgStep(null);
                                                                     showToast("Phase Ⅱ 発展期へ移行しました！", "success");
